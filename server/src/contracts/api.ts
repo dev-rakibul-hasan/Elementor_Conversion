@@ -184,6 +184,22 @@ export interface NativeElementorTemplate {
   page_settings?: Record<string, unknown>;
 }
 
+export interface ElementorAssetManifestEntry {
+  assetId: string;
+  type: string;
+  role: string;
+  sourceRect?: { x: number; y: number; width: number; height: number };
+  storagePath?: string;
+  resolvedUrl?: string;
+  wordpressAttachmentId?: number;
+  status: 'ready' | 'stored' | 'pending_crop' | 'unresolved';
+}
+
+export interface ElementorAssetManifest {
+  assets: ElementorAssetManifestEntry[];
+  unresolvedAssetIds: string[];
+}
+
 /**
  * Response payload for GET /api/v1/jobs/:id/elementor
  */
@@ -192,6 +208,7 @@ export interface GetElementorArtifactResponse {
   ready: boolean;
   targetVersion: string;
   data: NativeElementorTemplate | null;
+  assetManifest?: ElementorAssetManifest | null;
   stats?: {
     totalSections: number;
     totalContainers: number;
@@ -289,4 +306,3 @@ export interface HealthCheckResponse {
   uptimeSeconds: number;
   stages: Record<PipelineStage, { available: boolean }>;
 }
-

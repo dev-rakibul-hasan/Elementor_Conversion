@@ -9,6 +9,7 @@ import { InMemoryDeduplicationStore } from '../modules/storage/hasher.js';
 import { ImageProcessor } from '../modules/storage/processor.js';
 import { CanvasIsolationService } from '../modules/storage/canvas.js';
 import { type StorageConfig } from '../modules/storage/types.js';
+import type { DIRDocument } from '../modules/dir/types.js';
 
 describe('UploadStorageAdapter & Pipeline Orchestration Integration', () => {
   const testStorageDir = './storage/test_adapter_uploads';
@@ -92,6 +93,58 @@ describe('UploadStorageAdapter & Pipeline Orchestration Integration', () => {
     expect(canvasBounds.y).toBe(0);
     expect(canvasBounds.inner_bg_type).toBe('solid');
     expect(canvasBounds.crop_mockup).toBe(false);
+  });
+
+  it('crops DIR sub-assets into project storage without mutating the input document', async () => {
+    const upload = await adapter.validateUpload({
+      filePath: testInputFile,
+      fileName: 'hero-layout.png',
+      mimeType: 'image/png',
+      projectId: 'proj_crop_test',
+    });
+    const document: DIRDocument = {
+      version: '1.0.0',
+      meta: {
+        sourceImageHash: upload.verifiedSha256,
+        sourceWidth: 1280,
+        sourceHeight: 720,
+        analysisProvider: 'test',
+        analysisModel: 'test',
+        analysisTimestamp: new Date().toISOString(),
+        confidenceScore: 1,
+        schemaVersion: '1.0.0',
+        promptVersion: '1.0.0',
+      },
+      breakpoints: { desktop: { min: 1025 } },
+      globals: {
+        colors: { background: '#050a04', text: '#ffffff' },
+        typography: { fontFamilies: [] },
+      },
+      assets: [{
+        id: 'hero-art',
+        type: 'image',
+        role: 'hero artwork',
+        sourceRect: { x: 20, y: 30, width: 80, height: 40 },
+        confidence: 1,
+      }],
+      pages: [],
+    };
+
+    const prepared = await adapter.prepareDIRAssets(document, {
+      projectId: 'proj_crop_test',
+      sourceAssetPath: upload.storagePath,
+    });
+    const croppedAsset = prepared.assets[0];
+
+    expect(document.assets[0]?.path).toBeUndefined();
+    expect(croppedAsset?.path).toMatch(
+      /^projects\/proj_crop_test-[a-f0-9]{8}\/assets\/hero-art-[a-f0-9]{8}\.png$/
+    );
+    if (!croppedAsset?.path) throw new Error('Expected cropped asset path to be present');
+    const croppedBuffer = await uploadService.getStorageProvider().read(croppedAsset.path);
+    const metadata = await sharp(croppedBuffer).metadata();
+    expect(metadata.width).toBe(80);
+    expect(metadata.height).toBe(40);
   });
 
   it('fails gracefully when reading a non-existent file path', async () => {

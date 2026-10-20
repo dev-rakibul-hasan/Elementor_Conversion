@@ -33,6 +33,7 @@ import type {
   JobExecutionOptions,
   NativeElementorTemplate,
 } from '../../contracts/api.js';
+import { validateElementorTemplate } from '../elementor/validator.js';
 import {
   validateDIR,
   type DIRDocument,
@@ -327,8 +328,15 @@ export class ConversionPipelineOrchestrator {
       });
       completedStages.push(PIPELINE_STAGES.DIR_VALIDATION);
 
+      const preparedDIRDocument = this.adapters.uploadStorage.prepareDIRAssets
+        ? await this.adapters.uploadStorage.prepareDIRAssets(stage4Output.validatedDIRDocument, {
+            projectId: job.projectId,
+            sourceAssetPath: stage1Output.storagePath,
+          })
+        : stage4Output.validatedDIRDocument;
+
       // Save verified DIR Artifact to job
-      job.dirArtifact = stage4Output.validatedDIRDocument;
+      job.dirArtifact = preparedDIRDocument;
       await store.saveJob(job);
 
       // ═══════════════════════════════════════════════════════════════
@@ -336,8 +344,8 @@ export class ConversionPipelineOrchestrator {
       // ═══════════════════════════════════════════════════════════════
       const stage5Input: Stage5ElementorGenerationInput = {
         jobId,
-        validatedDIRDocument: stage4Output.validatedDIRDocument,
-        targetVersion: '4.3.5',
+        validatedDIRDocument: preparedDIRDocument,
+        targetVersion: preparedDIRDocument.meta.elementorVersion || '4.3.5',
       };
 
       const stage5Output = await this.executeStageWithResumption<Stage5ElementorGenerationOutput>({
@@ -365,7 +373,7 @@ export class ConversionPipelineOrchestrator {
         forceFresh: options.forceFresh,
         executeFn: async (signal) => {
           let template = stage5Output.elementorTemplate;
-          const syntaxErrors = this.validateElementorTemplateStructure(template);
+          let syntaxErrors = [...validateElementorTemplate(template).errors];
           let selfHealed = false;
           let healingAttempts = 0;
           const maxHealingAttempts = 2;
@@ -376,16 +384,17 @@ export class ConversionPipelineOrchestrator {
               template = await this.adapters.elementorHealing.healElementor(
                 template,
                 syntaxErrors,
-                stage4Output.validatedDIRDocument,
+                preparedDIRDocument,
                 healingAttempts,
                 signal
               );
-              const reErrors = this.validateElementorTemplateStructure(template);
+              const reErrors = validateElementorTemplate(template).errors;
               if (reErrors.length === 0) {
                 selfHealed = true;
-                syntaxErrors.length = 0;
+                syntaxErrors = [];
                 break;
               }
+              syntaxErrors = reErrors;
             } catch {
               break;
             }
@@ -419,6 +428,7 @@ export class ConversionPipelineOrchestrator {
 
       // Save verified Elementor Template Artifact
       job.elementorArtifact = stage6Output.validatedTemplate;
+      job.elementorAssetManifest = stage5Output.assetManifest ?? null;
       await store.saveJob(job);
 
       // ═══════════════════════════════════════════════════════════════
@@ -427,7 +437,7 @@ export class ConversionPipelineOrchestrator {
       const stage7Input: Stage7PreviewRenderingInput = {
         jobId,
         validatedTemplate: stage6Output.validatedTemplate,
-        validatedDIRDocument: stage4Output.validatedDIRDocument,
+        validatedDIRDocument: preparedDIRDocument,
         sourceAsset: stage1Output,
       };
 
@@ -459,7 +469,7 @@ export class ConversionPipelineOrchestrator {
       return {
         jobId,
         status: 'preview_ready',
-        dirDocument: stage4Output.validatedDIRDocument,
+        dirDocument: preparedDIRDocument,
         elementorTemplate: stage6Output.validatedTemplate,
         preview: stage7Output,
         totalDurationMs: Date.now() - startTime,
@@ -629,41 +639,4 @@ export class ConversionPipelineOrchestrator {
     throw new RetryLimitExceededError(stage, maxAttempts, lastError || undefined);
   }
 
-  /**
-   * Validates structural requirements of an Elementor template AST.
-   */
-  private validateElementorTemplateStructure(template: NativeElementorTemplate): string[] {
-    const errors: string[] = [];
-
-    if (!template || typeof template !== 'object') {
-      errors.push('Template root is not a valid object');
-      return errors;
-    }
-
-    if (!template.version || typeof template.version !== 'string') {
-      errors.push('Missing required "version" string in Elementor template');
-    }
-
-    if (!Array.isArray(template.content)) {
-      errors.push('Elementor template "content" must be an array');
-      return errors;
-    }
-
-    // Invariant: Never emit legacy Section/Column for new layouts
-    const checkNodes = (nodes: any[], path: string) => {
-      for (let i = 0; i < nodes.length; i++) {
-        const node = nodes[i];
-        const currentPath = `${path}[${i}]`;
-        if (node.elType === 'section' || node.elType === 'column') {
-          errors.push(`Legacy layout "${node.elType}" detected at ${currentPath}; modern Flexbox Container required`);
-        }
-        if (Array.isArray(node.elements)) {
-          checkNodes(node.elements, `${currentPath}.elements`);
-        }
-      }
-    };
-
-    checkNodes(template.content, 'content');
-    return errors;
-  }
 }

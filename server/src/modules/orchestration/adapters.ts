@@ -24,12 +24,17 @@ import type {
 import type { DIRDocument, DIRValidationIssue, DIRCanvasBounds } from '../dir/index.js';
 import type { NativeElementorTemplate } from '../../contracts/api.js';
 import type { PipelineStage, JobStatus, StageProgressInfo } from '../../contracts/stages.js';
+import type { PublishJobRequest, PublishJobResponse } from '../../contracts/api.js';
 
 // ─── Teammate Module Interface: Rakib (Storage & Upload) ────────────
 
 export interface IUploadStorageAdapter {
   validateUpload(input: Stage1UploadValidationInput): Promise<Stage1UploadValidationOutput>;
   isolateCanvas?(filePath: string): Promise<DIRCanvasBounds>;
+  prepareDIRAssets?(
+    document: DIRDocument,
+    input: { projectId: string; sourceAssetPath: string }
+  ): Promise<DIRDocument>;
 }
 
 // ─── AI Pipeline Interfaces ──────────────────────────────────────────
@@ -76,6 +81,15 @@ export interface IElementorHealingAdapter {
   ): Promise<NativeElementorTemplate>;
 }
 
+export interface IWordPressPublisher {
+  publishTemplate(
+    jobId: string,
+    template: NativeElementorTemplate,
+    options?: Pick<PublishJobRequest, 'postTitle' | 'postStatus'>,
+    signal?: AbortSignal
+  ): Promise<PublishJobResponse>;
+}
+
 // ─── Preview & Quality Assurance Adapter ─────────────────────────────
 
 export interface IPreviewRendererAdapter {
@@ -100,6 +114,7 @@ export interface ConversionJobRecord {
   leaseExpiresAt?: string | null;
   dirArtifact?: DIRDocument | null;
   elementorArtifact?: NativeElementorTemplate | null;
+  elementorAssetManifest?: import('../../contracts/api.js').ElementorAssetManifest | null;
   previewArtifact?: Stage7PreviewRenderingOutput | null;
   errorMessage?: string | null;
   errorDetails?: unknown;
@@ -196,4 +211,3 @@ export class InMemoryJobCheckpointStore implements IJobCheckpointStore {
     this.locks.clear();
   }
 }
-
