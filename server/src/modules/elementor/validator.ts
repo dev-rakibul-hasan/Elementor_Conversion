@@ -1,244 +1,192 @@
-import type { NativeElementorTemplate } from '../../contracts/api.js';
+/**
+ * Elementor Module — Validator
+ * Validates Elementor documents, checking element IDs, unique constraints,
+ * valid elTypes, widget registration, and nesting structure.
+ */
 
-const SUPPORTED_WIDGETS = new Set([
-  'accordion',
-  'button',
-  'counter',
-  'divider',
-  'google_maps',
-  'heading',
-  'icon',
-  'icon-box',
-  'icon-list',
-  'image',
-  'image-box',
-  'progress',
-  'social-icons',
-  'spacer',
-  'star-rating',
-  'tabs',
-  'text-editor',
-  'video',
-]);
+import type {
+  ElementorValidationResult,
+  ElementorValidationError,
+  ElementorValidationWarning,
+  ElementorValidationStats,
+} from './types.js';
+import { getRegistry } from './registry.js';
 
-export interface ElementorValidationResult {
-  valid: boolean;
-  errors: string[];
-  elementCount: number;
-  containerCount: number;
-  widgetCount: number;
-  widgetSlugs: string[];
-}
+export class ElementorValidator {
+  private registry = getRegistry();
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+  public validate(document: any): ElementorValidationResult {
+    const errors: ElementorValidationError[] = [];
+    const warnings: ElementorValidationWarning[] = [];
+    const stats: ElementorValidationStats = {
+      totalElements: 0,
+      containers: 0,
+      widgets: 0,
+      widgetTypeCounts: {},
+      maxDepth: 0,
+    };
 
-function validateWidgetSettings(
-  widgetType: string,
-  settings: Record<string, unknown>,
-  path: string,
-  errors: string[]
-): void {
-  if (widgetType === 'heading' && typeof settings.title !== 'string') {
-    errors.push(`${path}.settings.title must be a string`);
-  }
-  if (widgetType === 'text-editor' && typeof settings.editor !== 'string') {
-    errors.push(`${path}.settings.editor must be a string`);
-  }
-  if (
-    widgetType === 'button' &&
-    (typeof settings.text !== 'string' || !isRecord(settings.link) || typeof settings.link.url !== 'string')
-  ) {
-    errors.push(`${path} button requires text and a link.url string`);
-  }
-  if (widgetType === 'image' || widgetType === 'image-box') {
-    if (!isRecord(settings.image)) {
-      errors.push(`${path}.settings.image must be a media object`);
-    } else if (typeof settings.image.url !== 'string' || typeof settings.image.id !== 'number') {
-      errors.push(`${path}.settings.image requires string url and numeric id`);
+    if (!document || typeof document !== 'object') {
+      errors.push({
+        path: '',
+        message: 'Document must be a non-null object',
+        code: 'INVALID_DOCUMENT',
+      });
+      return { valid: false, errors, warnings, stats };
     }
-  }
-  if (widgetType === 'icon' || widgetType === 'icon-box') {
-    if (!isRecord(settings.selected_icon) || typeof settings.selected_icon.value !== 'string') {
-      errors.push(`${path}.settings.selected_icon must contain an icon value`);
-    }
-  }
-  if (widgetType === 'icon-list' || widgetType === 'social-icons') {
-    const repeaterKey = widgetType === 'icon-list' ? 'icon_list' : 'social_icon_list';
-    const rows = settings[repeaterKey];
-    if (!Array.isArray(rows)) {
-      errors.push(`${path}.settings.${repeaterKey} must be an array`);
-    } else {
-      rows.forEach((row, index) => {
-        if (!isRecord(row) || typeof row._id !== 'string') {
-          errors.push(`${path}.settings.${repeaterKey}[${index}] must have a repeater _id`);
-        }
+
+    if (!document.version) {
+      warnings.push({
+        path: 'version',
+        message: 'Missing document version',
+        code: 'MISSING_VERSION',
       });
     }
-  }
-  if (widgetType === 'counter' && typeof settings.ending_number !== 'number') {
-    errors.push(`${path}.settings.ending_number must be a number`);
-  }
-  if (widgetType === 'progress') {
-    if (!isRecord(settings.percent) || typeof settings.percent.size !== 'number') {
-      errors.push(`${path}.settings.percent must contain a numeric size`);
-    }
-  }
-  if (widgetType === 'star-rating' && typeof settings.rating !== 'number') {
-    errors.push(`${path}.settings.rating must be a number`);
-  }
-  if (widgetType === 'image-box') {
-    if (typeof settings.title_text !== 'string' || typeof settings.description_text !== 'string') {
-      errors.push(`${path} image-box requires title_text and description_text strings`);
-    }
-  }
-  if (widgetType === 'icon-box') {
-    if (typeof settings.title_text !== 'string' || typeof settings.description_text !== 'string') {
-      errors.push(`${path} icon-box requires title_text and description_text strings`);
-    }
-  }
-  if (widgetType === 'tabs' || widgetType === 'accordion') {
-    if (!Array.isArray(settings.tabs)) {
-      errors.push(`${path}.settings.tabs must be an array`);
-    } else {
-      settings.tabs.forEach((tab, index) => {
-        if (
-          !isRecord(tab) ||
-          typeof tab._id !== 'string' ||
-          typeof tab.tab_title !== 'string' ||
-          typeof tab.tab_content !== 'string'
-        ) {
-          errors.push(`${path}.settings.tabs[${index}] requires _id, tab_title, and tab_content`);
-        }
+
+    if (!Array.isArray(document.content)) {
+      errors.push({
+        path: 'content',
+        message: 'Document content must be an array of elements',
+        code: 'INVALID_CONTENT',
       });
+      return { valid: false, errors, warnings, stats };
     }
-  }
-  if (widgetType === 'video') {
-    const type = settings.video_type;
-    const urlKey = type === 'vimeo' ? 'vimeo_url' : type === 'hosted' ? 'hosted_url' : 'youtube_url';
-    if (typeof settings[urlKey] !== 'string' || settings[urlKey] === '') {
-      errors.push(`${path}.settings.${urlKey} must be a non-empty string`);
-    }
-  }
-  if (widgetType === 'google_maps' && typeof settings.address !== 'string') {
-    errors.push(`${path}.settings.address must be a string`);
-  }
-}
 
-export function validateElementorTemplate(
-  template: NativeElementorTemplate
-): ElementorValidationResult {
-  const errors: string[] = [];
-  const usedIds = new Set<string>();
-  const widgetSlugs = new Set<string>();
-  let elementCount = 0;
-  let containerCount = 0;
-  let widgetCount = 0;
+    const seenIds = new Set<string>();
 
-  if (!isRecord(template)) {
+    const traverse = (element: any, path: string, depth: number) => {
+      stats.totalElements++;
+      if (depth > stats.maxDepth) {
+        stats.maxDepth = depth;
+      }
+
+      if (!element || typeof element !== 'object') {
+        errors.push({
+          path,
+          message: 'Element must be an object',
+          code: 'INVALID_ELEMENT',
+        });
+        return;
+      }
+
+      // Check ID
+      if (!element.id || typeof element.id !== 'string') {
+        errors.push({
+          path: `${path}.id`,
+          message: 'Element missing valid id string',
+          code: 'MISSING_ELEMENT_ID',
+        });
+      } else {
+        if (seenIds.has(element.id)) {
+          errors.push({
+            path: `${path}.id`,
+            message: `Duplicate element ID "${element.id}" detected`,
+            code: 'DUPLICATE_ELEMENT_ID',
+            elementId: element.id,
+          });
+        }
+        seenIds.add(element.id);
+      }
+
+      // Check elType
+      const validTypes = ['container', 'widget', 'section', 'column'];
+      if (!element.elType || !validTypes.includes(element.elType)) {
+        errors.push({
+          path: `${path}.elType`,
+          message: `Invalid or missing elType "${element.elType}". Must be one of: ${validTypes.join(', ')}`,
+          code: 'INVALID_ELTYPE',
+          elementId: element.id,
+        });
+      }
+
+      if (element.elType === 'container' || element.elType === 'section' || element.elType === 'column') {
+        stats.containers++;
+        if (element.elType === 'section' || element.elType === 'column') {
+          warnings.push({
+            path: `${path}.elType`,
+            message: `Legacy element type "${element.elType}" detected. Modern Elementor requires Flexbox Containers ("container").`,
+            code: 'LEGACY_ELTYPE',
+            elementId: element.id,
+          });
+        }
+      }
+
+      // Check widgetType
+      if (element.elType === 'widget') {
+        stats.widgets++;
+        if (!element.widgetType || typeof element.widgetType !== 'string') {
+          errors.push({
+            path: `${path}.widgetType`,
+            message: 'Widget elements must specify a widgetType string',
+            code: 'MISSING_WIDGET_TYPE',
+            elementId: element.id,
+          });
+        } else {
+          stats.widgetTypeCounts[element.widgetType] = (stats.widgetTypeCounts[element.widgetType] || 0) + 1;
+
+          if (!this.registry.has(element.widgetType)) {
+            warnings.push({
+              path: `${path}.widgetType`,
+              message: `Unknown or unregistered widgetType "${element.widgetType}"`,
+              code: 'UNKNOWN_WIDGET_TYPE',
+              elementId: element.id,
+            });
+          }
+
+          if (element.widgetType === 'html' || element.widgetType === 'shortcode') {
+            const codeContent = element.settings?.html || element.settings?.shortcode || '';
+            if (typeof codeContent === 'string' && /<(section|header|footer|nav)\b/i.test(codeContent)) {
+              warnings.push({
+                path: `${path}.settings`,
+                message: `Prohibited full-section custom HTML shortcut detected in widget "${element.widgetType}". Design sections must be built using native Elementor containers and widgets.`,
+                code: 'PROHIBITED_CUSTOM_CODE_SHORTCUT',
+                elementId: element.id,
+              });
+            }
+          }
+        }
+      }
+
+      // Check settings
+      if (element.settings && typeof element.settings !== 'object') {
+        errors.push({
+          path: `${path}.settings`,
+          message: 'Settings must be an object',
+          code: 'INVALID_SETTINGS',
+          elementId: element.id,
+        });
+      } else if (element.settings?.__globals__) {
+        warnings.push({
+          path: `${path}.settings.__globals__`,
+          message: 'Settings contains __globals__ reference which may be overridden by WordPress theme styles.',
+          code: 'THEME_GLOBALS_DETECTED',
+          elementId: element.id,
+        });
+      }
+
+      // Traverse children
+      if (Array.isArray(element.elements)) {
+        element.elements.forEach((child: any, idx: number) => {
+          traverse(child, `${path}.elements[${idx}]`, depth + 1);
+        });
+      }
+    };
+
+    document.content.forEach((el: any, idx: number) => {
+      traverse(el, `content[${idx}]`, 1);
+    });
+
     return {
-      valid: false,
-      errors: ['Template root must be an object'],
-      elementCount,
-      containerCount,
-      widgetCount,
-      widgetSlugs: [],
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      stats,
     };
   }
-  if (typeof template.version !== 'string' || template.version === '') {
-    errors.push('Template version must be a non-empty string');
-  }
-  if (typeof template.title !== 'string' || template.title === '') {
-    errors.push('Template title must be a non-empty string');
-  }
-  if (template.type !== 'page') {
-    errors.push('Template type must be "page"');
-  }
-  if (!Array.isArray(template.content) || template.content.length === 0) {
-    errors.push('Template content must be a non-empty array');
-  }
-  if (!isRecord(template.page_settings)) {
-    errors.push('Template page_settings must be an object');
-  } else if (template.page_settings.template !== 'elementor_canvas') {
-    errors.push('Template page_settings.template must be "elementor_canvas"');
-  }
-
-  const visit = (candidate: unknown, path: string): void => {
-    if (!isRecord(candidate)) {
-      errors.push(`${path} must be an element object`);
-      return;
-    }
-    elementCount += 1;
-
-    if (typeof candidate.id !== 'string' || candidate.id.length !== 8 || !/^[a-f0-9]{8}$/.test(candidate.id)) {
-      errors.push(`${path}.id must be an 8-character lowercase hexadecimal Elementor ID`);
-    } else if (usedIds.has(candidate.id)) {
-      errors.push(`${path}.id duplicates "${candidate.id}"`);
-    } else {
-      usedIds.add(candidate.id);
-    }
-
-    if (candidate.elType === 'section' || candidate.elType === 'column') {
-      errors.push(`${path} uses legacy "${candidate.elType}"; use modern containers`);
-      return;
-    }
-    if (candidate.elType !== 'container' && candidate.elType !== 'widget') {
-      errors.push(`${path}.elType must be "container" or "widget"`);
-      return;
-    }
-    if (!isRecord(candidate.settings)) {
-      errors.push(`${path}.settings must be an object`);
-    }
-    if (!Array.isArray(candidate.elements)) {
-      errors.push(`${path}.elements must be an array`);
-      return;
-    }
-
-    if (candidate.elType === 'container') {
-      containerCount += 1;
-      if ('widgetType' in candidate) errors.push(`${path} container must not define widgetType`);
-    } else {
-      widgetCount += 1;
-      if (typeof candidate.widgetType !== 'string' || !SUPPORTED_WIDGETS.has(candidate.widgetType)) {
-        errors.push(`${path}.widgetType is not a supported Elementor Core widget slug`);
-      } else {
-        widgetSlugs.add(candidate.widgetType);
-        if (isRecord(candidate.settings)) {
-          validateWidgetSettings(candidate.widgetType, candidate.settings, path, errors);
-        }
-      }
-      if (candidate.elements.length > 0) {
-        errors.push(`${path} widget elements must be empty for classic Elementor widgets`);
-      }
-    }
-
-    candidate.elements.forEach((child, index) => visit(child, `${path}.elements[${index}]`));
-  };
-
-  if (Array.isArray(template.content)) {
-    template.content.forEach((element, index) => {
-      if (!isRecord(element) || element.elType !== 'container') {
-        errors.push(`content[${index}] must be a top-level section container`);
-      }
-      visit(element, `content[${index}]`);
-    });
-  }
-
-  return {
-    valid: errors.length === 0,
-    errors,
-    elementCount,
-    containerCount,
-    widgetCount,
-    widgetSlugs: [...widgetSlugs].sort(),
-  };
 }
 
-export function serializeElementorTemplate(template: NativeElementorTemplate): string {
-  const result = validateElementorTemplate(template);
-  if (!result.valid) {
-    throw new Error(`Cannot export invalid Elementor JSON: ${result.errors.join('; ')}`);
-  }
-  return JSON.stringify(template, null, 2);
+export function validateElementor(document: any): ElementorValidationResult {
+  const validator = new ElementorValidator();
+  return validator.validate(document);
 }
+

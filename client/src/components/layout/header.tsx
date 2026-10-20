@@ -49,7 +49,10 @@ export function Header() {
           {/* Desktop Nav */}
           <nav className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => {
-              const isActive = pathname === link.href || (link.href !== '/' && pathname.startsWith(link.href));
+              const isActive =
+                link.href === '/'
+                  ? pathname === '/' || pathname.startsWith('/projects')
+                  : pathname.startsWith(link.href);
               return (
                 <Link
                   key={link.href}
@@ -170,7 +173,12 @@ export function Header() {
             exit="exit"
             className="md:hidden border-b border-border bg-card px-4 pt-2 pb-4 space-y-1 overflow-hidden"
           >
-            {navLinks.map((link, i) => (
+            {navLinks.map((link, i) => {
+              const isActive =
+                link.href === '/'
+                  ? pathname === '/' || pathname.startsWith('/projects')
+                  : pathname.startsWith(link.href);
+              return (
               <motion.div
                 key={link.href}
                 initial={{ opacity: 0, x: -16 }}
@@ -180,12 +188,17 @@ export function Header() {
                 <Link
                   href={link.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="block px-3 py-2 rounded-md text-base font-medium text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  className={`block px-3 py-2 rounded-md text-base font-medium transition-colors ${
+                    isActive
+                      ? 'text-foreground font-semibold bg-secondary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                  }`}
                 >
                   {link.label}
                 </Link>
               </motion.div>
-            ))}
+            );
+            })}
             <div className="pt-2 border-t border-border mt-2">
               <Link
                 href="/upload"

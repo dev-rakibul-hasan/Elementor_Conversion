@@ -1,0 +1,19 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Read More",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/read-more.php",
+  "widget_slug": "read-more",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000029",
+    "elType": "widget",
+    "widgetType": "read-more",
+    "settings": {
+      "link_text": "Read more"
+    },
+    "elements": []
+  },
+  "notes": []
+}

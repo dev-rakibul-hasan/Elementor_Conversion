@@ -1,0 +1,59 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Container layout element",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/elements/container.php",
+  "widget_slug": null,
+  "element_type": "container",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "c0000001",
+    "elType": "container",
+    "settings": {
+      "content_width": "full",
+      "flex_direction": "column"
+    },
+    "elements": [
+      {
+        "id": "h0000001",
+        "elType": "widget",
+        "widgetType": "heading",
+        "settings": {
+          "title": "Build something great",
+          "header_size": "h1",
+          "align": "start"
+        },
+        "elements": []
+      },
+      {
+        "id": "t0000001",
+        "elType": "widget",
+        "widgetType": "text-editor",
+        "settings": {
+          "editor": "<p>Describe the value of your service here.</p>"
+        },
+        "elements": []
+      },
+      {
+        "id": "b0000001",
+        "elType": "widget",
+        "widgetType": "button",
+        "settings": {
+          "text": "Get Started",
+          "link": {
+            "url": "https://example.com/",
+            "is_external": "",
+            "nofollow": ""
+          },
+          "size": "sm",
+          "align": "start"
+        },
+        "elements": []
+      }
+    ],
+    "isInner": false
+  },
+  "notes": [
+    "Layout element, not an ordinary classic widget node. Use Container by default; legacy Section/Column is retained only for existing designs requiring it."
+  ]
+}

@@ -1,0 +1,233 @@
+{
+  "product": "Elementor Image-to-Template Skill Set",
+  "elementor_source_version": "4.3.5",
+  "source_archive": "elementor.zip",
+  "scope": "Built-in classic widget-manager list plus Container and legacy Inner Section layout examples",
+  "widgets": [
+    {
+      "slug": "container",
+      "display_name": "Container layout element",
+      "source_file": "includes/elements/container.php",
+      "reference_file": "references/layout-elements/container.json",
+      "element_type": "container"
+    },
+    {
+      "slug": "inner-section",
+      "display_name": "Legacy Inner Section (section/column structure)",
+      "source_file": "includes/widgets/inner-section.php",
+      "reference_file": "references/layout-elements/inner-section.json",
+      "element_type": "section"
+    },
+    {
+      "slug": "heading",
+      "display_name": "Heading",
+      "source_file": "includes/widgets/heading.php",
+      "reference_file": "references/widgets/heading.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "image",
+      "display_name": "Image",
+      "source_file": "includes/widgets/image.php",
+      "reference_file": "references/widgets/image.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "text-editor",
+      "display_name": "Text Editor",
+      "source_file": "includes/widgets/text-editor.php",
+      "reference_file": "references/widgets/text-editor.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "video",
+      "display_name": "Video",
+      "source_file": "includes/widgets/video.php",
+      "reference_file": "references/widgets/video.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "button",
+      "display_name": "Button",
+      "source_file": "includes/widgets/button.php + includes/widgets/traits/button-trait.php",
+      "reference_file": "references/widgets/button.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "divider",
+      "display_name": "Divider",
+      "source_file": "includes/widgets/divider.php",
+      "reference_file": "references/widgets/divider.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "spacer",
+      "display_name": "Spacer",
+      "source_file": "includes/widgets/spacer.php",
+      "reference_file": "references/widgets/spacer.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "image-box",
+      "display_name": "Image Box",
+      "source_file": "includes/widgets/image-box.php",
+      "reference_file": "references/widgets/image-box.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "google_maps",
+      "display_name": "Google Maps",
+      "source_file": "includes/widgets/google-maps.php",
+      "reference_file": "references/widgets/google-maps.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "icon",
+      "display_name": "Icon",
+      "source_file": "includes/widgets/icon.php",
+      "reference_file": "references/widgets/icon.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "icon-box",
+      "display_name": "Icon Box",
+      "source_file": "includes/widgets/icon-box.php",
+      "reference_file": "references/widgets/icon-box.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "star-rating",
+      "display_name": "Star Rating",
+      "source_file": "includes/widgets/star-rating.php",
+      "reference_file": "references/widgets/star-rating.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "image-carousel",
+      "display_name": "Image Carousel",
+      "source_file": "includes/widgets/image-carousel.php",
+      "reference_file": "references/widgets/image-carousel.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "image-gallery",
+      "display_name": "Basic Gallery",
+      "source_file": "includes/widgets/image-gallery.php",
+      "reference_file": "references/widgets/image-gallery.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "icon-list",
+      "display_name": "Icon List",
+      "source_file": "includes/widgets/icon-list.php",
+      "reference_file": "references/widgets/icon-list.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "counter",
+      "display_name": "Counter",
+      "source_file": "includes/widgets/counter.php",
+      "reference_file": "references/widgets/counter.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "progress",
+      "display_name": "Progress Bar",
+      "source_file": "includes/widgets/progress.php",
+      "reference_file": "references/widgets/progress.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "testimonial",
+      "display_name": "Testimonial",
+      "source_file": "includes/widgets/testimonial.php",
+      "reference_file": "references/widgets/testimonial.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "tabs",
+      "display_name": "Tabs",
+      "source_file": "includes/widgets/tabs.php",
+      "reference_file": "references/widgets/tabs.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "accordion",
+      "display_name": "Accordion",
+      "source_file": "includes/widgets/accordion.php",
+      "reference_file": "references/widgets/accordion.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "toggle",
+      "display_name": "Toggle",
+      "source_file": "includes/widgets/toggle.php",
+      "reference_file": "references/widgets/toggle.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "social-icons",
+      "display_name": "Social Icons",
+      "source_file": "includes/widgets/social-icons.php",
+      "reference_file": "references/widgets/social-icons.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "alert",
+      "display_name": "Alert",
+      "source_file": "includes/widgets/alert.php",
+      "reference_file": "references/widgets/alert.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "audio",
+      "display_name": "SoundCloud / Audio",
+      "source_file": "includes/widgets/audio.php",
+      "reference_file": "references/widgets/audio.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "shortcode",
+      "display_name": "Shortcode",
+      "source_file": "includes/widgets/shortcode.php",
+      "reference_file": "references/widgets/shortcode.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "html",
+      "display_name": "HTML",
+      "source_file": "includes/widgets/html.php",
+      "reference_file": "references/widgets/html.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "menu-anchor",
+      "display_name": "Menu Anchor",
+      "source_file": "includes/widgets/menu-anchor.php",
+      "reference_file": "references/widgets/menu-anchor.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "sidebar",
+      "display_name": "Sidebar",
+      "source_file": "includes/widgets/sidebar.php",
+      "reference_file": "references/widgets/sidebar.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "read-more",
+      "display_name": "Read More",
+      "source_file": "includes/widgets/read-more.php",
+      "reference_file": "references/widgets/read-more.json",
+      "element_type": "widget"
+    },
+    {
+      "slug": "rating",
+      "display_name": "Rating",
+      "source_file": "includes/widgets/rating.php",
+      "reference_file": "references/widgets/rating.json",
+      "element_type": "widget"
+    }
+  ],
+  "compatibility_note": "Elementor Pro/third-party/conditionally enabled Atomic and nested elements require target-site verification."
+}

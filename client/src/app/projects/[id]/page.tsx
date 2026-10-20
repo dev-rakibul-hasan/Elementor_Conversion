@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Header } from '../../../components/layout/header';
@@ -10,7 +10,7 @@ import { Badge } from '../../../components/ui/badge';
 import { StageProgress } from '../../../components/conversion/stage-progress';
 import { DIRInspector } from '../../../components/conversion/dir-inspector';
 import { ElementorInspector } from '../../../components/conversion/elementor-inspector';
-import { api, Project, ConversionJobWithStages } from '../../../lib/api';
+import { api, Project, ConversionJobWithStages, API_BASE_URL } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import {
   Download,
@@ -42,6 +42,7 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState<'status' | 'dir' | 'elementor'>('status');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const jobStatusRef = useRef<string | null>(null);
 
   const handleDeleteProject = async () => {
     setDeleting(true);
@@ -62,6 +63,7 @@ export default function ProjectDetailPage() {
         setProject(res);
         const latestJob = res.conversionJobs?.[0];
         if (latestJob) {
+          jobStatusRef.current = latestJob.status;
           setJob(latestJob);
 
           setDirData((latestJob.dirArtifact as Record<string, unknown>) || null);
@@ -78,16 +80,19 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     fetchProjectData();
     const interval = setInterval(() => {
-      if (job && !['preview_ready', 'failed', 'published'].includes(job.status)) {
-        fetchProjectData();
+      const status = jobStatusRef.current;
+      if (status && ['preview_ready', 'failed', 'published', 'cancelled'].includes(status)) {
+        return;
       }
+      fetchProjectData();
     }, 3000);
     return () => clearInterval(interval);
-  }, [fetchProjectData, job]);
+  }, [fetchProjectData]);
 
   const handleRetry = async () => {
     if (!job) return;
     try {
+      jobStatusRef.current = 'queued';
       await api.jobs.retry(job.id);
       toast.success('Conversion job retry queued');
       fetchProjectData();
@@ -248,17 +253,34 @@ export default function ProjectDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <StageProgress overallStatus={job?.status || 'queued'} stages={job?.stages || []} />
+                  <StageProgress
+                    overallStatus={job?.status || 'queued'}
+                    currentStage={job?.currentStage}
+                    stages={job?.stages || []}
+                    errorMessage={job?.errorMessage}
+                    errorDetails={job?.errorDetails}
+                    onRetry={handleRetry}
+                  />
                 </CardContent>
               </Card>
 
               {job?.errorMessage && (
-                <div className="p-4 rounded-xl border border-destructive/40 bg-destructive/10 text-destructive text-sm flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-                  <div>
-                    <h4 className="font-semibold text-foreground">Pipeline Execution Error</h4>
-                    <p className="mt-1 text-xs text-muted-foreground">{job.errorMessage}</p>
+                <div className="p-4 rounded-xl border border-destructive/40 bg-destructive/10 text-destructive text-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-destructive" />
+                    <div>
+                      <h4 className="font-semibold text-foreground">Pipeline Execution Error</h4>
+                      <p className="mt-1 text-xs text-muted-foreground leading-relaxed">{job.errorMessage}</p>
+                    </div>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRetry}
+                    className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10 flex items-center gap-1.5"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> Retry Conversion
+                  </Button>
                 </div>
               )}
             </div>
@@ -275,7 +297,7 @@ export default function ProjectDetailPage() {
                     <div className="border border-border rounded-lg p-2 bg-secondary/30 text-center">
                       <p className="text-[11px] text-muted-foreground mb-2">Original Upload Asset</p>
                       <img
-                        src={`http://localhost:4000/storage/${project.assets[0].storagePath}`}
+                        src={`${API_BASE_URL}/storage/${project.assets[0].storagePath}`}
                         alt="Source design"
                         className="max-h-64 mx-auto rounded-md object-contain border border-border shadow-sm"
                         onError={(e) => {

@@ -1,0 +1,193 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  passwordHash    String
+  role            UserRole         @default(USER)
+  storageQuota    BigInt           @default(2147483648)
+  usedStorage     BigInt           @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  projects        Project[]
+  siteConnections SiteConnection[]
+
+  @@index([email])
+}
+
+model Project {
+  id             String          @id @default(uuid())
+  userId         String
+  name           String
+  description    String?
+  sourceImageId  String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  assets         Asset[]
+  conversionJobs ConversionJob[]
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Asset {
+  id              String          @id @default(uuid())
+  projectId       String
+  fileName        String
+  mimeType        String
+  sizeBytes       BigInt
+  storagePath     String
+  storageProvider StorageProvider @default(local)
+  sha256          String
+  width           Int?
+  height          Int?
+  metadata        Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([sha256])
+}
+
+model ConversionJob {
+  id                String     @id @default(uuid())
+  projectId         String
+  status            JobStatus  @default(queued)
+  currentStage      StageName?
+  attempts          Int        @default(0)
+  maxAttempts       Int        @default(3)
+  workerId          String?
+  lockedAt          DateTime?
+  leaseExpiresAt    DateTime?
+  lastHeartbeat     DateTime?
+  sourceAssetId     String?
+  dirArtifact       Json?
+  elementorArtifact Json?
+  previewArtifact   Json?
+  errorMessage      String?
+  errorDetails      Json?
+  idempotencyKey    String?    @unique
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  project           Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  stages            JobStage[]
+
+  @@index([status, leaseExpiresAt])
+  @@index([projectId])
+  @@index([workerId])
+}
+
+model JobStage {
+  id            String        @id @default(uuid())
+  jobId         String
+  stage         StageName
+  status        StageStatus   @default(pending)
+  attempt       Int           @default(1)
+  inputPayload  Json?
+  outputPayload Json?
+  errorMessage  String?
+  durationMs    Int?
+  tokensUsed    Int?
+  providerName  String?
+  modelName     String?
+  startedAt     DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  job           ConversionJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, stage, attempt])
+  @@index([jobId])
+}
+
+model SiteConnection {
+  id                   String    @id @default(uuid())
+  userId               String
+  siteUrl              String
+  name                 String?
+  encryptedCredentials String
+  elementorVersion     String?
+  wordpressVersion     String?
+  isMcpAvailable       Boolean   @default(false)
+  discoveredTools      Json?
+  lastVerifiedAt       DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model StageCache {
+  id              String    @id @default(uuid())
+  cacheKey        String    @unique
+  stage           String?
+  sourceImageHash String?
+  normalizedInput String?
+  schemaVersion   String?
+  skillVersion    String?
+  promptVersion   String?
+  provider        String
+  model           String
+  response        Json
+  usage           Json?
+  expiresAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([cacheKey])
+  @@index([sourceImageHash])
+  @@index([expiresAt])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum JobStatus {
+  queued
+  validating_upload
+  analyzing_image
+  dir_ready
+  generating_elementor
+  validating_elementor
+  preview_ready
+  publishing
+  published
+  failed
+  cancelled
+  retrying
+}
+
+enum StageName {
+  upload_validation
+  image_analysis
+  dir_generation
+  dir_validation
+  elementor_generation
+  elementor_validation
+  preview_rendering
+  publishing
+}
+
+enum StageStatus {
+  pending
+  processing
+  completed
+  failed
+  skipped
+}
+
+enum StorageProvider {
+  local
+  b2
+}

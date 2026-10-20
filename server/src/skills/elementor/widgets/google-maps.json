@@ -1,0 +1,26 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Google Maps",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/google-maps.php",
+  "widget_slug": "google_maps",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000009",
+    "elType": "widget",
+    "widgetType": "google_maps",
+    "settings": {
+      "address": "Dhaka, Bangladesh",
+      "zoom": {
+        "size": 12
+      },
+      "height": {
+        "unit": "px",
+        "size": 320
+      }
+    },
+    "elements": []
+  },
+  "notes": []
+}

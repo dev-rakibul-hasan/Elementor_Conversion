@@ -1,0 +1,19 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Menu Anchor",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/menu-anchor.php",
+  "widget_slug": "menu-anchor",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000027",
+    "elType": "widget",
+    "widgetType": "menu-anchor",
+    "settings": {
+      "anchor": "pricing"
+    },
+    "elements": []
+  },
+  "notes": []
+}

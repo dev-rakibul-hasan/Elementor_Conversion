@@ -1,0 +1,21 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Shortcode",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/shortcode.php",
+  "widget_slug": "shortcode",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000025",
+    "elType": "widget",
+    "widgetType": "shortcode",
+    "settings": {
+      "shortcode": "[example_shortcode id=\"123\"]"
+    },
+    "elements": []
+  },
+  "notes": [
+    "The shortcode must be registered by WordPress or an installed plugin on the target site."
+  ]
+}

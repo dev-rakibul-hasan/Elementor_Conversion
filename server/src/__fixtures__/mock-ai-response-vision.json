@@ -1,0 +1,22 @@
+{
+  "id": "mock-response-001",
+  "object": "chat.completion",
+  "created": 1700000000,
+  "model": "mock-vision-v1",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"version\":\"1.0.0\",\"meta\":{\"sourceImageHash\":\"fixture-abc123def456\",\"sourceWidth\":1440,\"sourceHeight\":900,\"analysisProvider\":\"mock\",\"analysisModel\":\"mock-vision-v1\",\"analysisTimestamp\":\"2026-01-01T00:00:00Z\",\"confidenceScore\":0.92,\"schemaVersion\":\"1.0.0\",\"promptVersion\":\"1.0.0\",\"notes\":[\"Mock fixture response\"]},\"breakpoints\":{\"desktop\":{\"min\":1025},\"tablet\":{\"min\":768,\"max\":1024},\"mobile\":{\"min\":0,\"max\":767}},\"globals\":{\"colors\":{\"primary\":\"#2563EB\",\"secondary\":\"#7C3AED\",\"accent\":\"#F59E0B\",\"background\":\"#FFFFFF\",\"surface\":\"#F3F4F6\",\"text\":\"#111827\",\"textSecondary\":\"#6B7280\",\"border\":\"#E5E7EB\"},\"typography\":{\"fontFamilies\":[\"Inter\",\"system-ui\",\"sans-serif\"],\"headingFont\":\"Inter\",\"bodyFont\":\"Inter\",\"baseSize\":16,\"scale\":1.25},\"spacing\":{\"unit\":\"px\",\"base\":8,\"sectionGap\":64,\"containerMaxWidth\":1200}},\"assets\":[{\"id\":\"asset-logo-1\",\"type\":\"logo\",\"role\":\"brand-logo\",\"description\":\"Company logo\",\"confidence\":0.85}],\"pages\":[{\"id\":\"page-main\",\"name\":\"Landing Page\",\"sections\":[{\"id\":\"section-hero\",\"role\":\"hero\",\"label\":\"Hero Section\",\"confidence\":0.95,\"styles\":{\"backgroundColor\":\"#F3F4F6\",\"padding\":{\"top\":96,\"bottom\":96,\"left\":24,\"right\":24},\"textAlign\":\"center\"},\"children\":[{\"id\":\"node-hero-heading\",\"kind\":\"heading\",\"text\":\"Build Beautiful Websites\",\"level\":1,\"confidence\":0.95,\"styles\":{\"fontSize\":48,\"fontWeight\":800,\"color\":\"#111827\"}},{\"id\":\"node-hero-text\",\"kind\":\"text\",\"html\":\"<p>Create stunning websites with our builder.</p>\",\"confidence\":0.9,\"styles\":{\"fontSize\":18,\"color\":\"#6B7280\"}},{\"id\":\"node-hero-button\",\"kind\":\"button\",\"text\":\"Get Started\",\"variant\":\"primary\",\"confidence\":0.9,\"styles\":{\"backgroundColor\":\"#2563EB\",\"color\":\"#FFFFFF\",\"borderRadius\":8}}]}]}]}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1500,
+    "completion_tokens": 800,
+    "total_tokens": 2300
+  }
+}
+

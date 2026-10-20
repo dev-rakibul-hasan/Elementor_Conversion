@@ -1,0 +1,6 @@
+{
+  "elementor_core_version": "4.3.5",
+  "source_archive": "elementor.zip",
+  "source_root": "elementor/",
+  "reference_method": "inspected source registration and control IDs; each example is a source-guided minimal node, not live-import certification"
+}

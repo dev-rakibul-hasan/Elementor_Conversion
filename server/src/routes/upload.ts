@@ -1,164 +1,148 @@
 /**
- * Upload Routes & HTTP Controller
- * Module Owner: Rakib (Storage & Upload Lead)
- * 
- * Handles multipart file ingestion for:
- * - POST /api/upload
- * - POST /api/v1/upload
+ * API Routes — Upload & Conversions
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
-import multer from 'multer';
-import { UploadService } from '../modules/storage/upload-service.js';
-import { StorageError } from '../modules/storage/errors.js';
-import { STORAGE_ERROR_CODES, type StorageConfig, DEFAULT_STORAGE_CONFIG } from '../modules/storage/types.js';
-import { API_VERSION } from '../contracts/api.js';
+import { prisma } from '../lib/prisma.js';
+import { requireAuth } from '../middleware/auth.js';
+import { uploadMiddleware } from '../middleware/upload.js';
+import { validateImage, getImageMetadata, computeContentHash } from '../modules/storage/image-processor.js';
+import { getStorage } from '../modules/storage/factory.js';
+import { NotFoundError, ValidationError, QuotaError } from '../lib/errors.js';
+import { env } from '../config/index.js';
+import { getConversionOrchestrator } from '../modules/conversion/orchestrator.js';
 
-export function createUploadRouter(
-  uploadService: UploadService,
-  config: StorageConfig = DEFAULT_STORAGE_CONFIG
-): Router {
-  const router = Router();
+export const uploadRouter = Router();
+uploadRouter.use(requireAuth);
 
-  // Configure bounded in-memory or bounded temp buffer for multer
-  const upload = multer({
-    storage: multer.memoryStorage(),
-    limits: {
-      fileSize: config.maxFileSizeBytes,
-      files: config.maxFilesPerRequest,
-    },
-  });
+const uploadFields = uploadMiddleware.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'file', maxCount: 1 },
+]);
 
-  // Accept 'image' or 'file' form field for maximum client compatibility
-  const uploadMiddleware = upload.fields([
-    { name: 'image', maxCount: 1 },
-    { name: 'file', maxCount: 1 },
-  ]);
-
-  router.post(
-    '/',
-    (req: Request, res: Response, next: NextFunction): void => {
-      uploadMiddleware(req, res, (err: any) => {
-        if (err) {
-          if (err instanceof multer.MulterError) {
-            if (err.code === 'LIMIT_FILE_SIZE') {
-              res.status(413).json({
-                success: false,
-                error: {
-                  code: STORAGE_ERROR_CODES.FILE_TOO_LARGE,
-                  message: `File size exceeds the limit of ${config.maxFileSizeBytes} bytes`,
-                  stage: 'upload_validation',
-                  retryable: false,
-                  timestamp: new Date().toISOString(),
-                },
-              });
-              return;
-            }
-            if (err.code === 'LIMIT_FILE_COUNT') {
-              res.status(400).json({
-                success: false,
-                error: {
-                  code: STORAGE_ERROR_CODES.TOO_MANY_FILES,
-                  message: `Exceeded maximum file count of ${config.maxFilesPerRequest}`,
-                  stage: 'upload_validation',
-                  retryable: false,
-                  timestamp: new Date().toISOString(),
-                },
-              });
-              return;
-            }
-            res.status(400).json({
-              success: false,
-              error: {
-                code: STORAGE_ERROR_CODES.INVALID_REQUEST,
-                message: `Upload error: ${err.message}`,
-                stage: 'upload_validation',
-                retryable: false,
-                timestamp: new Date().toISOString(),
-              },
-            });
-            return;
-          }
-          next(err);
-          return;
-        }
-        next();
-      });
-    },
-    async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-      try {
-        const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
-        const uploadedFile = files?.image?.[0] || files?.file?.[0];
-
-        if (!uploadedFile) {
-          res.status(400).json({
-            success: false,
-            error: {
-              code: STORAGE_ERROR_CODES.INVALID_REQUEST,
-              message: 'No file uploaded. Expected form field "image" or "file".',
-              stage: 'upload_validation',
-              retryable: false,
-              timestamp: new Date().toISOString(),
-            },
-          });
-          return;
-        }
-
-        const projectId = (req.body?.projectId as string) || (req.body?.name as string) || 'default_project';
-        const declaredMime = uploadedFile.mimetype;
-        const originalName = uploadedFile.originalname;
-
-        const result = await uploadService.handleUpload({
-          fileBuffer: uploadedFile.buffer,
-          originalFileName: originalName,
-          declaredMimeType: declaredMime,
-          projectId,
-        });
-
-        // 200 OK on idempotent duplicate; 201 Created on fresh asset
-        const statusCode = result.isDuplicate ? 200 : 201;
-
-        res.status(statusCode).json({
-          success: true,
-          data: {
-            assetId: result.assetId,
-            metadata: result.metadata,
-            canvas: result.canvas,
-            isDuplicate: result.isDuplicate,
-            duplicateOfAssetId: result.duplicateOfAssetId,
-            warnings: result.warnings,
-            // Also provide composite shape for Client project/job model
-            project: {
-              id: projectId,
-              name: req.body?.name || originalName,
-            },
-            asset: result.metadata,
-          },
-          meta: {
-            apiVersion: API_VERSION,
-            timestamp: new Date().toISOString(),
-          },
-        });
-        return;
-      } catch (err: any) {
-        if (err instanceof StorageError) {
-          res.status(err.httpStatus).json({
-            success: false,
-            error: {
-              code: err.code,
-              message: err.message,
-              stage: 'upload_validation',
-              details: err.details,
-              retryable: err.retryable,
-              timestamp: err.timestamp,
-            },
-          });
-          return;
-        }
-        next(err);
-      }
+async function processUpload(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  projectIdParam?: string
+) {
+  try {
+    const userId = req.user?.id || (req as any).user?.userId;
+    if (!userId) {
+      throw new ValidationError('Authentication required');
     }
-  );
 
-  return router;
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const file = req.file || files?.image?.[0] || files?.file?.[0];
+
+    if (!file) {
+      throw new ValidationError('No image file provided');
+    }
+
+    const buffer = file.buffer;
+    try {
+      await validateImage(buffer);
+    } catch (valErr: any) {
+      throw new ValidationError(`Invalid image upload: ${valErr.message}`);
+    }
+
+    let targetProjectId = projectIdParam || (req.body?.projectId as string | undefined);
+    let project;
+
+    if (targetProjectId) {
+      project = await prisma.project.findFirst({
+        where: { id: targetProjectId, userId },
+      });
+      if (!project) {
+        throw new NotFoundError('Project not found');
+      }
+    } else {
+      const fallbackName = file.originalname.replace(/\.[^/.]+$/, '').trim();
+      const projectName = (req.body?.name as string | undefined)?.trim() || fallbackName || 'Untitled Project';
+      project = await prisma.project.create({
+        data: {
+          userId,
+          name: projectName,
+        },
+      });
+      targetProjectId = project.id;
+    }
+
+    // Check quota
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const currentQuota = user ? BigInt(user.usedStorage) : BigInt(0);
+    const newQuota = currentQuota + BigInt(buffer.length);
+    if (newQuota > BigInt(env.UPLOAD_QUOTA_BYTES)) {
+      throw new QuotaError('User upload quota exceeded');
+    }
+
+    const hash = computeContentHash(buffer);
+    const metadata = await getImageMetadata(buffer);
+    const storage = getStorage();
+
+    const storageKey = `projects/${targetProjectId}/originals/${hash}_${file.originalname}`;
+    const uploadRes = await storage.upload(storageKey, buffer, file.mimetype);
+
+    // Create Asset record
+    const asset = await prisma.asset.create({
+      data: {
+        projectId: targetProjectId,
+        fileName: file.originalname,
+        mimeType: file.mimetype,
+        sizeBytes: BigInt(buffer.length),
+        sha256: hash,
+        storageProvider: 'local',
+        storagePath: uploadRes.key,
+        width: metadata.width,
+        height: metadata.height,
+      },
+    });
+
+    // Update user quota
+    await prisma.user.update({
+      where: { id: userId },
+      data: { usedStorage: newQuota },
+    });
+
+    // Create Conversion Job
+    const job = await prisma.conversionJob.create({
+      data: {
+        projectId: targetProjectId,
+        status: 'queued',
+        sourceAssetId: asset.id,
+      },
+    });
+
+    // Kick off conversion asynchronously
+    getConversionOrchestrator().processJob(job.id).catch(() => {});
+
+    res.status(201).json({
+      success: true,
+      data: {
+        project,
+        job,
+        asset,
+        jobId: job.id,
+        assetId: asset.id,
+        status: job.status,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
 }
+
+// 1. Direct top-level upload (e.g. POST /api/v1/upload)
+uploadRouter.post('/', uploadFields, (req: Request, res: Response, next: NextFunction) => {
+  processUpload(req, res, next);
+});
+
+// 2. Project-bound upload (e.g. POST /api/v1/projects/:projectId/upload)
+uploadRouter.post('/:projectId/upload', uploadFields, (req: Request, res: Response, next: NextFunction) => {
+  processUpload(req, res, next, req.params.projectId as string);
+});
+
+// 3. Project-bound direct upload (e.g. POST /api/v1/projects/:projectId or POST /api/v1/upload/:projectId)
+uploadRouter.post('/:projectId', uploadFields, (req: Request, res: Response, next: NextFunction) => {
+  processUpload(req, res, next, req.params.projectId as string);
+});

@@ -1,0 +1,27 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Testimonial",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/testimonial.php",
+  "widget_slug": "testimonial",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000018",
+    "elType": "widget",
+    "widgetType": "testimonial",
+    "settings": {
+      "testimonial_content": "The team delivered excellent work and communication.",
+      "testimonial_image": {
+        "id": 103,
+        "url": "https://example.com/customer.jpg"
+      },
+      "testimonial_name": "Alex Morgan",
+      "testimonial_job": "Customer",
+      "image_size": "thumbnail",
+      "testimonial_alignment": "center"
+    },
+    "elements": []
+  },
+  "notes": []
+}

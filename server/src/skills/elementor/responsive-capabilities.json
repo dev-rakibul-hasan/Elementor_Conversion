@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "engineStandard": "Elementor Core 4.3.5+",
+  "breakpoints": {
+    "desktop": {
+      "min": 1025,
+      "suffix": "",
+      "description": "Default base viewport for Elementor desktop layout"
+    },
+    "tablet": {
+      "min": 768,
+      "max": 1024,
+      "suffix": "_tablet",
+      "description": "Tablet viewport cascading from desktop base"
+    },
+    "mobile": {
+      "min": 320,
+      "max": 767,
+      "suffix": "_mobile",
+      "description": "Mobile viewport cascading from tablet/desktop"
+    }
+  },
+  "layoutElements": {
+    "container": {
+      "element_type": "container",
+      "responsive_controls": {
+        "flex_direction": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "values": ["row", "column", "row-reverse", "column-reverse"],
+          "default_fallback": "column"
+        },
+        "flex_justify_content": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "values": ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"]
+        },
+        "flex_align_items": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "values": ["flex-start", "center", "flex-end", "stretch"]
+        },
+        "flex_gap": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "dimension",
+          "default_unit": "px"
+        },
+        "boxed_width": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "slider",
+          "default_unit": "px"
+        },
+        "width": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "slider",
+          "default_unit": "%"
+        },
+        "custom_height": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "slider",
+          "default_unit": "px"
+        },
+        "padding": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "dimensions_quad",
+          "default_unit": "px"
+        },
+        "margin": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "dimensions_quad",
+          "default_unit": "px"
+        },
+        "grid_columns_grid": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "slider",
+          "default_unit": "fr",
+          "reflow_rule": "columns >= 3 -> tablet: 2, mobile: 1; columns == 2 -> tablet: 2, mobile: 1"
+        },
+        "grid_gap": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "type": "dimension",
+          "default_unit": "px"
+        },
+        "align_self": {
+          "supported_suffixes": ["_tablet", "_mobile"],
+          "values": ["auto", "flex-start", "center", "flex-end", "stretch"]
+        }
+      }
+    }
+  },
+  "widgets": {
+    "heading": {
+      "responsive_controls": {
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] },
+        "typography_font_size": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" },
+        "typography_line_height": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "em" },
+        "typography_letter_spacing": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
+      }
+    },
+    "text-editor": {
+      "responsive_controls": {
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] },
+        "typography_font_size": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" },
+        "typography_line_height": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "em" }
+      }
+    },
+    "button": {
+      "responsive_controls": {
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] },
+        "button_padding": { "supported_suffixes": ["_tablet", "_mobile"], "type": "dimensions_quad", "unit": "px" },
+        "typography_font_size": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
+      }
+    },
+    "image": {
+      "responsive_controls": {
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] },
+        "width": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "%" },
+        "height": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" },
+        "space": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
+      }
+    },
+    "counter": {
+      "responsive_controls": {
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] },
+        "typography_number_font_size": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" },
+        "typography_title_font_size": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
+      }
+    },
+    "icon-list": {
+      "responsive_controls": {
+        "space_between": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" },
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] }
+      }
+    },
+    "spacer": {
+      "responsive_controls": {
+        "space": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
+      }
+    },
+    "divider": {
+      "responsive_controls": {
+        "width": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "%" },
+        "align": { "supported_suffixes": ["_tablet", "_mobile"] },
+        "gap": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
+      }
+    }
+  }
+}
+

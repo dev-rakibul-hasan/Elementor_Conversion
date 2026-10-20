@@ -1,0 +1,534 @@
+{
+  "version": "1.0.0",
+  "meta": {
+    "sourceImageHash": "fixture-abc123def456",
+    "sourceWidth": 1440,
+    "sourceHeight": 900,
+    "analysisProvider": "mock",
+    "analysisModel": "mock-vision-v1",
+    "analysisTimestamp": "2026-01-01T00:00:00Z",
+    "confidenceScore": 0.92,
+    "schemaVersion": "1.0.0",
+    "promptVersion": "1.0.0",
+    "notes": ["Fixture DIR for testing"]
+  },
+  "breakpoints": {
+    "desktop": { "min": 1025 },
+    "tablet": { "min": 768, "max": 1024 },
+    "mobile": { "min": 0, "max": 767 }
+  },
+  "globals": {
+    "colors": {
+      "primary": "#2563EB",
+      "secondary": "#7C3AED",
+      "accent": "#F59E0B",
+      "background": "#FFFFFF",
+      "surface": "#F3F4F6",
+      "text": "#111827",
+      "textSecondary": "#6B7280",
+      "border": "#E5E7EB"
+    },
+    "typography": {
+      "fontFamilies": ["Inter", "system-ui", "sans-serif"],
+      "headingFont": "Inter",
+      "bodyFont": "Inter",
+      "baseSize": 16,
+      "scale": 1.25
+    },
+    "spacing": {
+      "unit": "px",
+      "base": 8,
+      "sectionGap": 64,
+      "containerMaxWidth": 1200
+    }
+  },
+  "assets": [
+    {
+      "id": "asset-logo-1",
+      "type": "logo",
+      "role": "brand-logo",
+      "description": "Company logo in header",
+      "confidence": 0.85
+    },
+    {
+      "id": "asset-hero-1",
+      "type": "image",
+      "role": "hero-background",
+      "sourceRect": { "x": 0, "y": 80, "width": 1440, "height": 600 },
+      "description": "Hero section background image",
+      "confidence": 0.9
+    },
+    {
+      "id": "asset-feature-1",
+      "type": "icon",
+      "role": "feature-icon",
+      "description": "Feature section icon - speed/performance",
+      "confidence": 0.75
+    }
+  ],
+  "pages": [
+    {
+      "id": "page-main",
+      "name": "Landing Page",
+      "sections": [
+        {
+          "id": "section-header",
+          "role": "header",
+          "label": "Header Navigation",
+          "confidence": 0.95,
+          "styles": {
+            "backgroundColor": "#FFFFFF",
+            "padding": { "top": 16, "bottom": 16, "left": 24, "right": 24 },
+            "display": "flex",
+            "justifyContent": "space-between",
+            "alignItems": "center"
+          },
+          "children": [
+            {
+              "id": "node-logo",
+              "kind": "image",
+              "label": "Logo",
+              "confidence": 0.9,
+              "assetId": "asset-logo-1",
+              "alt": "Company Logo",
+              "styles": {
+                "width": 120,
+                "height": 40
+              }
+            },
+            {
+              "id": "node-nav",
+              "kind": "flex-group",
+              "label": "Navigation Links",
+              "confidence": 0.85,
+              "direction": "row",
+              "gap": 32,
+              "alignItems": "center",
+              "styles": {},
+              "children": [
+                {
+                  "id": "node-nav-1",
+                  "kind": "link",
+                  "text": "Features",
+                  "confidence": 0.9,
+                  "styles": {
+                    "color": "#111827",
+                    "fontSize": 14,
+                    "fontWeight": 500
+                  }
+                },
+                {
+                  "id": "node-nav-2",
+                  "kind": "link",
+                  "text": "Pricing",
+                  "confidence": 0.9,
+                  "styles": {
+                    "color": "#111827",
+                    "fontSize": 14,
+                    "fontWeight": 500
+                  }
+                },
+                {
+                  "id": "node-nav-3",
+                  "kind": "link",
+                  "text": "About",
+                  "confidence": 0.9,
+                  "styles": {
+                    "color": "#111827",
+                    "fontSize": 14,
+                    "fontWeight": 500
+                  }
+                },
+                {
+                  "id": "node-nav-cta",
+                  "kind": "button",
+                  "text": "Get Started",
+                  "variant": "primary",
+                  "size": "small",
+                  "confidence": 0.9,
+                  "styles": {
+                    "backgroundColor": "#2563EB",
+                    "color": "#FFFFFF",
+                    "borderRadius": 6,
+                    "padding": { "top": 8, "bottom": 8, "left": 16, "right": 16 },
+                    "fontSize": 14,
+                    "fontWeight": 600
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "section-hero",
+          "role": "hero",
+          "label": "Hero Section",
+          "confidence": 0.95,
+          "styles": {
+            "backgroundColor": "#F3F4F6",
+            "padding": { "top": 96, "bottom": 96, "left": 24, "right": 24 },
+            "textAlign": "center"
+          },
+          "children": [
+            {
+              "id": "node-hero-container",
+              "kind": "container",
+              "direction": "column",
+              "confidence": 0.9,
+              "styles": {
+                "maxWidth": 800,
+                "margin": { "left": 0, "right": 0 },
+                "gap": 24,
+                "alignItems": "center"
+              },
+              "children": [
+                {
+                  "id": "node-hero-badge",
+                  "kind": "badge",
+                  "text": "NEW: Version 2.0 Released",
+                  "confidence": 0.8,
+                  "styles": {
+                    "backgroundColor": "#EFF6FF",
+                    "color": "#2563EB",
+                    "fontSize": 12,
+                    "fontWeight": 600,
+                    "borderRadius": 16,
+                    "padding": { "top": 4, "bottom": 4, "left": 12, "right": 12 }
+                  }
+                },
+                {
+                  "id": "node-hero-heading",
+                  "kind": "heading",
+                  "text": "Build Beautiful Websites Without Code",
+                  "level": 1,
+                  "confidence": 0.95,
+                  "styles": {
+                    "fontSize": 48,
+                    "fontWeight": 800,
+                    "lineHeight": 1.1,
+                    "color": "#111827"
+                  }
+                },
+                {
+                  "id": "node-hero-text",
+                  "kind": "text",
+                  "html": "<p>Create stunning, responsive websites with our intuitive drag-and-drop builder. No coding experience required.</p>",
+                  "text": "Create stunning, responsive websites with our intuitive drag-and-drop builder. No coding experience required.",
+                  "confidence": 0.9,
+                  "styles": {
+                    "fontSize": 18,
+                    "color": "#6B7280",
+                    "lineHeight": 1.6,
+                    "maxWidth": 600
+                  }
+                },
+                {
+                  "id": "node-hero-cta-group",
+                  "kind": "flex-group",
+                  "direction": "row",
+                  "gap": 16,
+                  "justifyContent": "center",
+                  "confidence": 0.9,
+                  "styles": {},
+                  "children": [
+                    {
+                      "id": "node-hero-cta-primary",
+                      "kind": "button",
+                      "text": "Start Free Trial",
+                      "variant": "primary",
+                      "size": "large",
+                      "confidence": 0.9,
+                      "styles": {
+                        "backgroundColor": "#2563EB",
+                        "color": "#FFFFFF",
+                        "fontSize": 16,
+                        "fontWeight": 600,
+                        "borderRadius": 8,
+                        "padding": { "top": 14, "bottom": 14, "left": 28, "right": 28 }
+                      }
+                    },
+                    {
+                      "id": "node-hero-cta-secondary",
+                      "kind": "button",
+                      "text": "Watch Demo",
+                      "variant": "outline",
+                      "size": "large",
+                      "confidence": 0.85,
+                      "styles": {
+                        "backgroundColor": "transparent",
+                        "color": "#111827",
+                        "borderWidth": 1,
+                        "borderColor": "#D1D5DB",
+                        "fontSize": 16,
+                        "fontWeight": 600,
+                        "borderRadius": 8,
+                        "padding": { "top": 14, "bottom": 14, "left": 28, "right": 28 }
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "section-features",
+          "role": "feature",
+          "label": "Features Section",
+          "confidence": 0.9,
+          "styles": {
+            "backgroundColor": "#FFFFFF",
+            "padding": { "top": 80, "bottom": 80, "left": 24, "right": 24 }
+          },
+          "children": [
+            {
+              "id": "node-features-heading",
+              "kind": "heading",
+              "text": "Everything You Need",
+              "level": 2,
+              "confidence": 0.9,
+              "styles": {
+                "fontSize": 36,
+                "fontWeight": 700,
+                "textAlign": "center",
+                "color": "#111827",
+                "margin": { "bottom": 48 }
+              }
+            },
+            {
+              "id": "node-features-grid",
+              "kind": "grid-group",
+              "columns": 3,
+              "gap": 32,
+              "confidence": 0.85,
+              "styles": {
+                "maxWidth": 1200
+              },
+              "children": [
+                {
+                  "id": "node-feature-1",
+                  "kind": "card",
+                  "confidence": 0.85,
+                  "styles": {
+                    "padding": { "top": 32, "bottom": 32, "left": 24, "right": 24 },
+                    "borderRadius": 12,
+                    "backgroundColor": "#F9FAFB"
+                  },
+                  "children": [
+                    {
+                      "id": "node-feature-1-icon",
+                      "kind": "icon",
+                      "iconName": "zap",
+                      "confidence": 0.7,
+                      "styles": {
+                        "fontSize": 32,
+                        "color": "#2563EB",
+                        "margin": { "bottom": 16 }
+                      }
+                    },
+                    {
+                      "id": "node-feature-1-title",
+                      "kind": "heading",
+                      "text": "Lightning Fast",
+                      "level": 3,
+                      "confidence": 0.9,
+                      "styles": {
+                        "fontSize": 20,
+                        "fontWeight": 600,
+                        "color": "#111827",
+                        "margin": { "bottom": 8 }
+                      }
+                    },
+                    {
+                      "id": "node-feature-1-desc",
+                      "kind": "text",
+                      "html": "<p>Optimized for speed with lazy loading, code splitting, and CDN delivery built in.</p>",
+                      "confidence": 0.85,
+                      "styles": {
+                        "fontSize": 14,
+                        "color": "#6B7280",
+                        "lineHeight": 1.6
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "node-feature-2",
+                  "kind": "card",
+                  "confidence": 0.85,
+                  "styles": {
+                    "padding": { "top": 32, "bottom": 32, "left": 24, "right": 24 },
+                    "borderRadius": 12,
+                    "backgroundColor": "#F9FAFB"
+                  },
+                  "children": [
+                    {
+                      "id": "node-feature-2-icon",
+                      "kind": "icon",
+                      "iconName": "shield",
+                      "confidence": 0.7,
+                      "styles": {
+                        "fontSize": 32,
+                        "color": "#7C3AED",
+                        "margin": { "bottom": 16 }
+                      }
+                    },
+                    {
+                      "id": "node-feature-2-title",
+                      "kind": "heading",
+                      "text": "Secure by Default",
+                      "level": 3,
+                      "confidence": 0.9,
+                      "styles": {
+                        "fontSize": 20,
+                        "fontWeight": 600,
+                        "color": "#111827",
+                        "margin": { "bottom": 8 }
+                      }
+                    },
+                    {
+                      "id": "node-feature-2-desc",
+                      "kind": "text",
+                      "html": "<p>Enterprise-grade security with SSL, DDoS protection, and regular security audits.</p>",
+                      "confidence": 0.85,
+                      "styles": {
+                        "fontSize": 14,
+                        "color": "#6B7280",
+                        "lineHeight": 1.6
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "node-feature-3",
+                  "kind": "card",
+                  "confidence": 0.85,
+                  "styles": {
+                    "padding": { "top": 32, "bottom": 32, "left": 24, "right": 24 },
+                    "borderRadius": 12,
+                    "backgroundColor": "#F9FAFB"
+                  },
+                  "children": [
+                    {
+                      "id": "node-feature-3-icon",
+                      "kind": "icon",
+                      "iconName": "palette",
+                      "confidence": 0.7,
+                      "styles": {
+                        "fontSize": 32,
+                        "color": "#F59E0B",
+                        "margin": { "bottom": 16 }
+                      }
+                    },
+                    {
+                      "id": "node-feature-3-title",
+                      "kind": "heading",
+                      "text": "Beautiful Design",
+                      "level": 3,
+                      "confidence": 0.9,
+                      "styles": {
+                        "fontSize": 20,
+                        "fontWeight": 600,
+                        "color": "#111827",
+                        "margin": { "bottom": 8 }
+                      }
+                    },
+                    {
+                      "id": "node-feature-3-desc",
+                      "kind": "text",
+                      "html": "<p>Professional templates and a powerful design system to make your site stand out.</p>",
+                      "confidence": 0.85,
+                      "styles": {
+                        "fontSize": 14,
+                        "color": "#6B7280",
+                        "lineHeight": 1.6
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "section-cta",
+          "role": "cta",
+          "label": "Call to Action",
+          "confidence": 0.9,
+          "styles": {
+            "backgroundColor": "#2563EB",
+            "padding": { "top": 64, "bottom": 64, "left": 24, "right": 24 },
+            "textAlign": "center"
+          },
+          "children": [
+            {
+              "id": "node-cta-heading",
+              "kind": "heading",
+              "text": "Ready to Get Started?",
+              "level": 2,
+              "confidence": 0.9,
+              "styles": {
+                "fontSize": 36,
+                "fontWeight": 700,
+                "color": "#FFFFFF",
+                "margin": { "bottom": 16 }
+              }
+            },
+            {
+              "id": "node-cta-text",
+              "kind": "text",
+              "html": "<p>Join thousands of creators building amazing websites today.</p>",
+              "confidence": 0.85,
+              "styles": {
+                "fontSize": 18,
+                "color": "#BFDBFE",
+                "margin": { "bottom": 32 }
+              }
+            },
+            {
+              "id": "node-cta-button",
+              "kind": "button",
+              "text": "Start Building Free",
+              "variant": "secondary",
+              "size": "large",
+              "confidence": 0.9,
+              "styles": {
+                "backgroundColor": "#FFFFFF",
+                "color": "#2563EB",
+                "fontSize": 16,
+                "fontWeight": 600,
+                "borderRadius": 8,
+                "padding": { "top": 14, "bottom": 14, "left": 32, "right": 32 }
+              }
+            }
+          ]
+        },
+        {
+          "id": "section-footer",
+          "role": "footer",
+          "label": "Footer",
+          "confidence": 0.85,
+          "styles": {
+            "backgroundColor": "#111827",
+            "padding": { "top": 48, "bottom": 48, "left": 24, "right": 24 },
+            "color": "#9CA3AF"
+          },
+          "children": [
+            {
+              "id": "node-footer-text",
+              "kind": "text",
+              "html": "<p>&copy; 2026 Company Name. All rights reserved.</p>",
+              "confidence": 0.8,
+              "styles": {
+                "fontSize": 14,
+                "color": "#9CA3AF",
+                "textAlign": "center"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+

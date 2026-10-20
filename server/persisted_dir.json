@@ -1,0 +1,559 @@
+{
+  "meta": {
+    "notes": [
+      "Dark fitness/gym landing page with high-impact orange accents",
+      "Framed presentation with custom rounded visual masks and stat counters",
+      "Features a bold typography headline with custom underline accent"
+    ],
+    "sourceWidth": 3333,
+    "sourceHeight": 2000,
+    "analysisModel": "gemini-3.8-flash",
+    "promptVersion": "v1.6.0",
+    "schemaVersion": "1.0.0",
+    "confidenceScore": 0.95,
+    "sourceImageHash": "5ec591943c93fd21c96a9a38ecc79ae8dc88564adeb14fd02a50c52f516915e2",
+    "analysisProvider": "gemini",
+    "analysisTimestamp": "2026-10-15T04:20:29.669Z"
+  },
+  "pages": [
+    {
+      "id": "page_main",
+      "name": "Home",
+      "sections": [
+        {
+          "id": "sec_header",
+          "role": "header",
+          "label": "Main Navigation",
+          "styles": {
+            "padding": {
+              "top": 48,
+              "left": 96,
+              "right": 96,
+              "bottom": 24
+            },
+            "backgroundColor": "#071312"
+          },
+          "children": [
+            {
+              "id": "nav_bar_container",
+              "kind": "flex-group",
+              "styles": {
+                "width": 100,
+                "alignItems": "center",
+                "justifyContent": "space-between"
+              },
+              "children": [
+                {
+                  "id": "brand_logo_group",
+                  "kind": "flex-group",
+                  "styles": {
+                    "gap": 12,
+                    "alignItems": "center"
+                  },
+                  "children": [
+                    {
+                      "id": "brand_logo_image",
+                      "alt": "Strong Body Logo",
+                      "url": "/storage/projects/8c18ac50-cbf0-4619-81de-e2f55bbb81c9/assets/asset_logo_mark_6b8e2eb0.png",
+                      "kind": "image",
+                      "styles": {
+                        "width": 180,
+                        "height": 56
+                      },
+                      "assetId": "asset_logo_mark",
+                      "confidence": 0.95
+                    }
+                  ],
+                  "direction": "row",
+                  "confidence": 0.95
+                },
+                {
+                  "id": "nav_menu_links",
+                  "kind": "flex-group",
+                  "styles": {
+                    "gap": 48,
+                    "alignItems": "center"
+                  },
+                  "children": [
+                    {
+                      "id": "nav_link_home",
+                      "kind": "link",
+                      "text": "Home",
+                      "styles": {
+                        "color": "#ff3823",
+                        "fontSize": 18,
+                        "fontWeight": 700
+                      },
+                      "confidence": 0.95
+                    },
+                    {
+                      "id": "nav_link_services",
+                      "kind": "link",
+                      "text": "Services",
+                      "styles": {
+                        "color": "#ffffff",
+                        "fontSize": 18,
+                        "fontWeight": 500
+                      },
+                      "confidence": 0.92
+                    },
+                    {
+                      "id": "nav_link_about",
+                      "kind": "link",
+                      "text": "About",
+                      "styles": {
+                        "color": "#ffffff",
+                        "fontSize": 18,
+                        "fontWeight": 500
+                      },
+                      "confidence": 0.92
+                    },
+                    {
+                      "id": "nav_link_training",
+                      "kind": "link",
+                      "text": "Training",
+                      "styles": {
+                        "color": "#ffffff",
+                        "fontSize": 18,
+                        "fontWeight": 500
+                      },
+                      "confidence": 0.92
+                    },
+                    {
+                      "id": "nav_link_features",
+                      "kind": "link",
+                      "text": "Features",
+                      "styles": {
+                        "color": "#ffffff",
+                        "fontSize": 18,
+                        "fontWeight": 500
+                      },
+                      "confidence": 0.92
+                    },
+                    {
+                      "id": "nav_link_pricing",
+                      "kind": "link",
+                      "text": "Pricing",
+                      "styles": {
+                        "color": "#ffffff",
+                        "fontSize": 18,
+                        "fontWeight": 500
+                      },
+                      "confidence": 0.92
+                    }
+                  ],
+                  "direction": "row",
+                  "confidence": 0.94
+                },
+                {
+                  "id": "btn_join_now",
+                  "kind": "button",
+                  "text": "Join Now",
+                  "styles": {
+                    "color": "#ffffff",
+                    "padding": {
+                      "top": 12,
+                      "left": 36,
+                      "right": 36,
+                      "bottom": 12
+                    },
+                    "fontSize": 16,
+                    "fontWeight": 600,
+                    "borderColor": "#ff3823",
+                    "borderWidth": 2,
+                    "borderRadius": 9999
+                  },
+                  "variant": "outline",
+                  "confidence": 0.95
+                }
+              ],
+              "direction": "row",
+              "confidence": 0.96
+            }
+          ],
+          "confidence": 0.96
+        },
+        {
+          "id": "sec_hero",
+          "role": "hero",
+          "label": "Hero Section",
+          "styles": {
+            "padding": {
+              "top": 64,
+              "left": 96,
+              "right": 96,
+              "bottom": 80
+            },
+            "backgroundColor": "#071312"
+          },
+          "children": [
+            {
+              "id": "hero_content_grid",
+              "kind": "grid-group",
+              "styles": {
+                "gap": 64,
+                "alignItems": "center"
+              },
+              "columns": 2,
+              "children": [
+                {
+                  "id": "hero_text_column",
+                  "kind": "flex-group",
+                  "styles": {
+                    "gap": 32
+                  },
+                  "children": [
+                    {
+                      "id": "hero_headline",
+                      "kind": "heading",
+                      "text": "Build a perfect life",
+                      "level": 1,
+                      "styles": {
+                        "color": "#ffffff",
+                        "fontSize": 80,
+                        "fontWeight": 800,
+                        "lineHeight": 1.1,
+                        "letterSpacing": -1
+                      },
+                      "confidence": 0.99
+                    },
+                    {
+                      "id": "hero_description",
+                      "html": "<p>Lorem ipsum dolor sit amet, consectetuer adipiscing elit, sed diam nonummy nibh euismod tincidunt ut laoreet dolore magna aliquam erat volutpat. Ut wisi enim ad minim veniam, quis nostrud exerci tation ullamcorper suscipit lobortis nisl ut aliquip ex ea commodo consequat.</p>",
+                      "kind": "text",
+                      "styles": {
+                        "color": "#d2ded9",
+                        "fontSize": 20,
+                        "maxWidth": 820,
+                        "lineHeight": 1.6
+                      },
+                      "confidence": 0.93
+                    },
+                    {
+                      "id": "hero_action_row",
+                      "kind": "flex-group",
+                      "styles": {
+                        "gap": 24,
+                        "padding": {
+                          "top": 12,
+                          "left": 0,
+                          "right": 0,
+                          "bottom": 16
+                        },
+                        "alignItems": "center"
+                      },
+                      "children": [
+                        {
+                          "id": "action_prompt_text",
+                          "html": "<span>Haven't you started yet?</span>",
+                          "kind": "text",
+                          "styles": {
+                            "color": "#ffffff",
+                            "fontSize": 20,
+                            "fontWeight": 500
+                          },
+                          "confidence": 0.9
+                        },
+                        {
+                          "id": "btn_start_now",
+                          "kind": "button",
+                          "text": "Start Now",
+                          "styles": {
+                            "color": "#ffffff",
+                            "padding": {
+                              "top": 14,
+                              "left": 36,
+                              "right": 36,
+                              "bottom": 14
+                            },
+                            "fontSize": 18,
+                            "fontWeight": 700,
+                            "borderRadius": 9999,
+                            "backgroundColor": "#ff3823"
+                          },
+                          "variant": "primary",
+                          "confidence": 0.98
+                        }
+                      ],
+                      "direction": "row",
+                      "confidence": 0.95
+                    },
+                    {
+                      "id": "hero_stats_container",
+                      "kind": "flex-group",
+                      "styles": {
+                        "gap": 48,
+                        "padding": {
+                          "top": 32,
+                          "left": 0,
+                          "right": 0,
+                          "bottom": 0
+                        }
+                      },
+                      "children": [
+                        {
+                          "id": "stat_card_clients",
+                          "kind": "flex-group",
+                          "styles": {
+                            "gap": 16,
+                            "alignItems": "center"
+                          },
+                          "children": [
+                            {
+                              "id": "stat_circle_clients",
+                              "kind": "container",
+                              "styles": {
+                                "width": 140,
+                                "height": 140,
+                                "alignItems": "center",
+                                "borderRadius": 9999,
+                                "justifyContent": "center",
+                                "backgroundColor": "#ff3823"
+                              },
+                              "children": [
+                                {
+                                  "id": "stat_counter_clients",
+                                  "kind": "counter",
+                                  "value": 10,
+                                  "styles": {
+                                    "color": "#ffffff",
+                                    "fontSize": 44,
+                                    "fontWeight": 800
+                                  },
+                                  "suffix": "k",
+                                  "confidence": 0.95
+                                }
+                              ],
+                              "direction": "column",
+                              "confidence": 0.95
+                            },
+                            {
+                              "id": "stat_label_clients",
+                              "html": "<p>Happy Clients</p>",
+                              "kind": "text",
+                              "styles": {
+                                "color": "#ffffff",
+                                "fontSize": 18,
+                                "fontWeight": 600
+                              },
+                              "confidence": 0.94
+                            }
+                          ],
+                          "direction": "column",
+                          "confidence": 0.95
+                        },
+                        {
+                          "id": "stat_card_experience",
+                          "kind": "flex-group",
+                          "styles": {
+                            "gap": 16,
+                            "alignItems": "center"
+                          },
+                          "children": [
+                            {
+                              "id": "stat_circle_experience",
+                              "kind": "container",
+                              "styles": {
+                                "width": 140,
+                                "height": 140,
+                                "alignItems": "center",
+                                "borderRadius": 9999,
+                                "justifyContent": "center",
+                                "backgroundColor": "#ff3823"
+                              },
+                              "children": [
+                                {
+                                  "id": "stat_counter_experience",
+                                  "kind": "counter",
+                                  "value": 20,
+                                  "styles": {
+                                    "color": "#ffffff",
+                                    "fontSize": 44,
+                                    "fontWeight": 800
+                                  },
+                                  "confidence": 0.95
+                                }
+                              ],
+                              "direction": "column",
+                              "confidence": 0.95
+                            },
+                            {
+                              "id": "stat_label_experience",
+                              "html": "<p>Years Experience</p>",
+                              "kind": "text",
+                              "styles": {
+                                "color": "#ffffff",
+                                "fontSize": 18,
+                                "fontWeight": 600
+                              },
+                              "confidence": 0.94
+                            }
+                          ],
+                          "direction": "column",
+                          "confidence": 0.95
+                        },
+                        {
+                          "id": "stat_card_trainers",
+                          "kind": "flex-group",
+                          "styles": {
+                            "gap": 16,
+                            "alignItems": "center"
+                          },
+                          "children": [
+                            {
+                              "id": "stat_circle_trainers",
+                              "kind": "container",
+                              "styles": {
+                                "width": 140,
+                                "height": 140,
+                                "alignItems": "center",
+                                "borderRadius": 9999,
+                                "justifyContent": "center",
+                                "backgroundColor": "#ff3823"
+                              },
+                              "children": [
+                                {
+                                  "id": "stat_counter_trainers",
+                                  "kind": "counter",
+                                  "value": 500,
+                                  "styles": {
+                                    "color": "#ffffff",
+                                    "fontSize": 44,
+                                    "fontWeight": 800
+                                  },
+                                  "confidence": 0.95
+                                }
+                              ],
+                              "direction": "column",
+                              "confidence": 0.95
+                            },
+                            {
+                              "id": "stat_label_trainers",
+                              "html": "<p>Expert Trainers</p>",
+                              "kind": "text",
+                              "styles": {
+                                "color": "#ffffff",
+                                "fontSize": 18,
+                                "fontWeight": 600
+                              },
+                              "confidence": 0.94
+                            }
+                          ],
+                          "direction": "column",
+                          "confidence": 0.95
+                        }
+                      ],
+                      "direction": "row",
+                      "confidence": 0.96
+                    }
+                  ],
+                  "direction": "column",
+                  "confidence": 0.97
+                },
+                {
+                  "id": "hero_visual_column",
+                  "kind": "container",
+                  "styles": {
+                    "position": "relative",
+                    "alignItems": "center",
+                    "justifyContent": "center"
+                  },
+                  "children": [
+                    {
+                      "id": "hero_main_image",
+                      "alt": "Male athlete training in gym",
+                      "url": "/storage/projects/8c18ac50-cbf0-4619-81de-e2f55bbb81c9/assets/asset_hero_athlete_a457472c.png",
+                      "kind": "image",
+                      "styles": {
+                        "width": 880,
+                        "height": 1050,
+                        "borderRadius": 240
+                      },
+                      "assetId": "asset_hero_athlete",
+                      "objectFit": "cover",
+                      "confidence": 0.98
+                    }
+                  ],
+                  "direction": "column",
+                  "confidence": 0.96
+                }
+              ],
+              "confidence": 0.96
+            }
+          ],
+          "confidence": 0.98
+        }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset_logo_mark",
+      "role": "brand-logo",
+      "type": "logo",
+      "confidence": 0.96,
+      "sourceRect": {
+        "x": 480,
+        "y": 230,
+        "width": 210,
+        "height": 70
+      },
+      "placeholder": "/storage/projects/8c18ac50-cbf0-4619-81de-e2f55bbb81c9/assets/asset_logo_mark_6b8e2eb0.png"
+    },
+    {
+      "id": "asset_hero_athlete",
+      "role": "hero-athlete-portrait",
+      "type": "image",
+      "confidence": 0.98,
+      "sourceRect": {
+        "x": 1820,
+        "y": 340,
+        "width": 1150,
+        "height": 1400
+      },
+      "placeholder": "/storage/projects/8c18ac50-cbf0-4619-81de-e2f55bbb81c9/assets/asset_hero_athlete_a457472c.png"
+    }
+  ],
+  "globals": {
+    "colors": {
+      "text": "#ffffff",
+      "accent": "#ff5138",
+      "border": "#2c3e3a",
+      "primary": "#ff3823",
+      "surface": "#0d1e1c",
+      "secondary": "#a0b0ab",
+      "background": "#071312"
+    },
+    "spacing": {
+      "base": 8,
+      "unit": "px",
+      "sectionGap": 48,
+      "containerMaxWidth": 2800
+    },
+    "typography": {
+      "scale": 1.25,
+      "baseSize": 16,
+      "bodyFont": "Inter",
+      "headingFont": "Montserrat",
+      "fontFamilies": [
+        "Montserrat",
+        "Inter",
+        "sans-serif"
+      ]
+    }
+  },
+  "version": "1.0.0",
+  "breakpoints": {
+    "mobile": {
+      "max": 767,
+      "min": 320
+    },
+    "tablet": {
+      "max": 1023,
+      "min": 768
+    },
+    "desktop": {
+      "min": 1024
+    }
+  }
+}

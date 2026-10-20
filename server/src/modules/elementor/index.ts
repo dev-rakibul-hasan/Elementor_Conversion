@@ -1,6 +1,6 @@
-export * from './assets.js';
-export * from './compiler.js';
-export * from './ids.js';
-export * from './mapper.js';
+export * from './types.js';
+export * from './registry.js';
+export * from './generator.js';
 export * from './validator.js';
-export * from './wordpress-publisher.js';
+export * from './serializer.js';
+

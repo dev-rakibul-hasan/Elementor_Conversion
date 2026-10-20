@@ -1,0 +1,32 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Tabs",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/tabs.php",
+  "widget_slug": "tabs",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000019",
+    "elType": "widget",
+    "widgetType": "tabs",
+    "settings": {
+      "tabs": [
+        {
+          "_id": "tab00001",
+          "tab_title": "Overview",
+          "tab_content": "<p>Overview content.</p>"
+        },
+        {
+          "_id": "tab00002",
+          "tab_title": "Details",
+          "tab_content": "<p>Details content.</p>"
+        }
+      ],
+      "type": "horizontal",
+      "tabs_align_horizontal": ""
+    },
+    "elements": []
+  },
+  "notes": []
+}

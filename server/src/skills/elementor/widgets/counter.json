@@ -1,0 +1,25 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Counter",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/counter.php",
+  "widget_slug": "counter",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000016",
+    "elType": "widget",
+    "widgetType": "counter",
+    "settings": {
+      "starting_number": 0,
+      "ending_number": 250,
+      "prefix": "",
+      "suffix": "+",
+      "duration": 2000,
+      "title": "Completed projects",
+      "title_tag": "div"
+    },
+    "elements": []
+  },
+  "notes": []
+}

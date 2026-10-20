@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "meta": {
+    "sourceImageHash": "fixture-vision-hash-12345",
+    "sourceWidth": 1440,
+    "sourceHeight": 900,
+    "analysisProvider": "mock",
+    "analysisModel": "mock-vision-v1",
+    "analysisTimestamp": "2026-10-15T00:00:00.000Z",
+    "confidenceScore": 0.95,
+    "schemaVersion": "1.0.0",
+    "promptVersion": "v1.0.0",
+    "notes": ["Canonical DIR document fixture for vision stage mock testing"]
+  },
+  "breakpoints": {
+    "desktop": { "min": 1024 },
+    "tablet": { "min": 768, "max": 1023 },
+    "mobile": { "min": 0, "max": 767 }
+  },
+  "globals": {
+    "colors": {
+      "primary": "#2563eb",
+      "secondary": "#4f46e5",
+      "background": "#ffffff",
+      "surface": "#f8fafc",
+      "text": "#0f172a",
+      "textSecondary": "#64748b"
+    },
+    "typography": {
+      "fontFamilies": ["Inter", "sans-serif"],
+      "headingFont": "Inter",
+      "bodyFont": "Inter",
+      "baseSize": 16,
+      "scale": 1.25
+    },
+    "spacing": {
+      "unit": "px",
+      "base": 8,
+      "sectionGap": 64,
+      "containerMaxWidth": 1200
+    }
+  },
+  "assets": [
+    {
+      "id": "asset_logo",
+      "type": "logo",
+      "role": "brand-logo",
+      "description": "Company brand logo",
+      "confidence": 0.95
+    },
+    {
+      "id": "asset_hero_img",
+      "type": "image",
+      "role": "hero-illustration",
+      "description": "Hero section graphic",
+      "confidence": 0.92
+    }
+  ],
+  "pages": [
+    {
+      "id": "page_home",
+      "name": "Home",
+      "sections": [
+        {
+          "id": "sec_header",
+          "role": "header",
+          "label": "Navigation Header",
+          "confidence": 0.95,
+          "styles": {
+            "backgroundColor": "#ffffff",
+            "padding": { "top": 16, "right": 24, "bottom": 16, "left": 24 },
+            "display": "flex",
+            "justifyContent": "space-between",
+            "alignItems": "center"
+          },
+          "children": [
+            {
+              "id": "node_logo",
+              "kind": "image",
+              "label": "Brand Logo",
+              "confidence": 0.95,
+              "assetId": "asset_logo",
+              "alt": "Brand Logo",
+              "styles": {
+                "width": 140,
+                "height": 40
+              }
+            },
+            {
+              "id": "node_nav_cta",
+              "kind": "button",
+              "label": "Get Started",
+              "confidence": 0.92,
+              "text": "Get Started",
+              "styles": {
+                "backgroundColor": "#2563eb",
+                "color": "#ffffff",
+                "borderRadius": 6,
+                "padding": { "top": 10, "right": 20, "bottom": 10, "left": 20 },
+                "fontWeight": 600
+              }
+            }
+          ]
+        },
+        {
+          "id": "sec_hero",
+          "role": "hero",
+          "label": "Hero Section",
+          "confidence": 0.94,
+          "styles": {
+            "backgroundColor": "#f8fafc",
+            "padding": { "top": 64, "right": 24, "bottom": 64, "left": 24 }
+          },
+          "children": [
+            {
+              "id": "node_hero_heading",
+              "kind": "heading",
+              "label": "Hero Headline",
+              "confidence": 0.95,
+              "text": "Design to Elementor, Instantly",
+              "level": 1,
+              "styles": {
+                "color": "#0f172a",
+                "fontSize": 48,
+                "fontWeight": 800,
+                "textAlign": "center"
+              }
+            },
+            {
+              "id": "node_hero_sub",
+              "kind": "text",
+              "label": "Hero Subtitle",
+              "confidence": 0.9,
+              "html": "<p>Convert web screenshots into production Elementor containers and widgets with zero manual recreation.</p>",
+              "styles": {
+                "color": "#64748b",
+                "fontSize": 18,
+                "textAlign": "center"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

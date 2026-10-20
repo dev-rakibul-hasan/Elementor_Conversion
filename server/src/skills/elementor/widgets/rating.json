@@ -1,0 +1,27 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Rating",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/rating.php",
+  "widget_slug": "rating",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000030",
+    "elType": "widget",
+    "widgetType": "rating",
+    "settings": {
+      "rating_scale": {
+        "size": 5
+      },
+      "rating_value": 4.5,
+      "rating_icon": {
+        "value": "eicon-star",
+        "library": "eicons"
+      },
+      "icon_alignment": "start"
+    },
+    "elements": []
+  },
+  "notes": []
+}

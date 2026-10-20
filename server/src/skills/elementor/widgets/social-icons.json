@@ -1,0 +1,50 @@
+{
+  "reference_type": "elementor-widget-example",
+  "display_name": "Social Icons",
+  "elementor_source_version": "4.3.5",
+  "source_file": "includes/widgets/social-icons.php",
+  "widget_slug": "social-icons",
+  "element_type": "widget",
+  "coverage_status": "source-control-keys-checked-example-not-live-import-tested",
+  "native_elementor_node_example": {
+    "id": "w0000022",
+    "elType": "widget",
+    "widgetType": "social-icons",
+    "settings": {
+      "social_icon_list": [
+        {
+          "_id": "soc00001",
+          "social_icon": {
+            "value": "fab fa-facebook",
+            "library": "fa-brands"
+          },
+          "link": {
+            "url": "https://facebook.com/example",
+            "is_external": "true",
+            "nofollow": "true"
+          }
+        },
+        {
+          "_id": "soc00002",
+          "social_icon": {
+            "value": "fab fa-instagram",
+            "library": "fa-brands"
+          },
+          "link": {
+            "url": "https://instagram.com/example",
+            "is_external": "true",
+            "nofollow": "true"
+          }
+        }
+      ],
+      "shape": "circle",
+      "align": "center",
+      "icon_size": {
+        "unit": "px",
+        "size": 18
+      }
+    },
+    "elements": []
+  },
+  "notes": []
+}
