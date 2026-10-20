@@ -65,12 +65,13 @@ describe('ConversionPipelineOrchestrator', () => {
     title: 'Marketing Landing',
     type: 'page',
     page_settings: {
+      template: 'elementor_canvas',
       background_background: 'classic',
       background_color: '#050a04',
     },
     content: [
       {
-        id: 'cnt_hero',
+        id: 'a0000001',
         elType: 'container',
         settings: {
           flex_direction: 'column',
@@ -78,13 +79,14 @@ describe('ConversionPipelineOrchestrator', () => {
         },
         elements: [
           {
-            id: 'wdg_title',
+            id: 'a0000002',
             elType: 'widget',
             widgetType: 'heading',
             settings: {
               title: 'Simplified Finances',
               title_color: '#ffffff',
             },
+            elements: [],
           },
         ],
       },

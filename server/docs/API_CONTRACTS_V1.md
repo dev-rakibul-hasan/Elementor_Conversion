@@ -262,6 +262,19 @@ Retrieves real-time status and granular stage progression for Safaet's frontend 
       },
       "content": [ ... ]
     },
+    "assetManifest": {
+      "assets": [
+        {
+          "assetId": "asset_hero",
+          "type": "image",
+          "role": "hero artwork",
+          "sourceRect": { "x": 120, "y": 80, "width": 480, "height": 360 },
+          "storagePath": "projects/proj_99f1a2/assets/hero.png",
+          "status": "stored"
+        }
+      ],
+      "unresolvedAssetIds": ["asset_hero"]
+    },
     "stats": {
       "totalSections": 2,
       "totalContainers": 4,
@@ -322,4 +335,3 @@ Gracefully aborts a currently executing job.
   }
 }
 ```
-

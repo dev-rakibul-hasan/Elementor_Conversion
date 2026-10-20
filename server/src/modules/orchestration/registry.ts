@@ -13,7 +13,10 @@ import {
   type StageDescriptor,
 } from '../../contracts/stages.js';
 import type { DIRDocument, DIRValidationIssue, DIRCanvasBounds, DIRColorPalette } from '../dir/index.js';
-import type { NativeElementorTemplate } from '../../contracts/api.js';
+import type {
+  ElementorAssetManifest,
+  NativeElementorTemplate,
+} from '../../contracts/api.js';
 
 // ─── Stage 1: Upload & Security Validation ───────────────────────────
 
@@ -102,6 +105,7 @@ export interface Stage5ElementorGenerationInput {
 
 export interface Stage5ElementorGenerationOutput {
   elementorTemplate: NativeElementorTemplate;
+  assetManifest?: ElementorAssetManifest;
   totalSections: number;
   totalContainers: number;
   totalWidgets: number;

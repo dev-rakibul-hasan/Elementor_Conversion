@@ -7,6 +7,8 @@
  */
 
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
+import sharp from 'sharp';
 import type {
   IUploadStorageAdapter,
 } from '../orchestration/adapters.js';
@@ -18,6 +20,7 @@ import type { DIRCanvasBounds } from '../dir/types.js';
 import { UploadService } from './upload-service.js';
 import { ImageProcessor } from './processor.js';
 import type { StorageConfig } from './types.js';
+import type { DIRDocument } from '../dir/types.js';
 
 export class UploadStorageAdapter implements IUploadStorageAdapter {
   private uploadService: UploadService;
@@ -88,5 +91,60 @@ export class UploadStorageAdapter implements IUploadStorageAdapter {
       width: meta.normalizedWidth,
       height: meta.normalizedHeight,
     };
+  }
+
+  public async prepareDIRAssets(
+    document: DIRDocument,
+    input: { projectId: string; sourceAssetPath: string }
+  ): Promise<DIRDocument> {
+    const preparedDocument = structuredClone(document);
+    const assetsToCrop = preparedDocument.assets.filter(
+      (asset) => asset.sourceRect && !asset.path && !this.hasPublicAssetUrl(asset.url, asset.placeholder)
+    );
+    if (assetsToCrop.length === 0) return preparedDocument;
+
+    const sourceBuffer = await this.uploadService.getStorageProvider().read(input.sourceAssetPath);
+    const projectSegment = this.safePathSegment(input.projectId);
+
+    for (const asset of assetsToCrop) {
+      const sourceRect = asset.sourceRect;
+      if (!sourceRect) continue;
+      const croppedBuffer = await this.processor.cropImageRegion(sourceBuffer, sourceRect);
+      const pngBuffer = await sharp(croppedBuffer).png().toBuffer();
+      const croppedMetadata = await sharp(pngBuffer).metadata();
+      if (!croppedMetadata.width || !croppedMetadata.height) {
+        throw new Error(`Failed to read dimensions for cropped DIR asset "${asset.id}"`);
+      }
+      const assetSegment = this.safePathSegment(asset.id);
+      const storagePath = `projects/${projectSegment}/assets/${assetSegment}.png`;
+      await this.uploadService.getStorageProvider().save(storagePath, pngBuffer);
+
+      asset.path = storagePath;
+      asset.width = croppedMetadata.width;
+      asset.height = croppedMetadata.height;
+    }
+
+    return preparedDocument;
+  }
+
+  private hasPublicAssetUrl(...values: Array<string | undefined>): boolean {
+    return values.some((value) => {
+      if (!value) return false;
+      if (/^https?:\/\//i.test(value)) {
+        try {
+          const parsed = new URL(value);
+          return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        } catch {
+          return false;
+        }
+      }
+      return value.startsWith('/') && !value.startsWith('//');
+    });
+  }
+
+  private safePathSegment(value: string): string {
+    const sanitized = value.replace(/[^a-zA-Z0-9_-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 64);
+    const suffix = crypto.createHash('sha256').update(value).digest('hex').slice(0, 8);
+    return `${sanitized.slice(0, 48) || 'asset'}-${suffix}`;
   }
 }
