@@ -10,7 +10,6 @@ import { validateImage, getImageMetadata, computeContentHash } from '../modules/
 import { getStorage } from '../modules/storage/factory.js';
 import { NotFoundError, ValidationError, QuotaError } from '../lib/errors.js';
 import { env } from '../config/index.js';
-import { getConversionOrchestrator } from '../modules/conversion/orchestrator.js';
 
 export const uploadRouter = Router();
 uploadRouter.use(requireAuth);
@@ -112,9 +111,6 @@ async function processUpload(
         sourceAssetId: asset.id,
       },
     });
-
-    // Kick off conversion asynchronously
-    getConversionOrchestrator().processJob(job.id).catch(() => {});
 
     res.status(201).json({
       success: true,

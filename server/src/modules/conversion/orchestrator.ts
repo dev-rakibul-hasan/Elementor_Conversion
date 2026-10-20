@@ -13,9 +13,17 @@ import { convertDIRToElementor } from '../elementor/generator.js';
 import { validateElementor } from '../elementor/validator.js';
 import { serializeElementorTemplate } from '../elementor/serializer.js';
 import { getStorage } from '../storage/factory.js';
-import { getImageAnalysisPrompt, getDIRRepairPrompt, getSectionRepairPrompt, getElementorSelfHealingGatePrompt, getElementorConversionPrompt } from './prompts.js';
+import {
+  getImageAnalysisPrompt,
+  getDIRRepairPrompt,
+  getSectionRepairPrompt,
+  getElementorSelfHealingGatePrompt,
+  getElementorConversionPrompt,
+} from './prompts.js';
 import { cropAsset, getImageMetadata, computeContentHash } from '../storage/image-processor.js';
 import type { DIRDocument } from '../dir/types.js';
+import type { ConversionReport, ElementorValidationStats } from '../elementor/types.js';
+import type { StageName } from '@prisma/client';
 
 export interface QualityAuditResult {
   passed: boolean;
@@ -29,6 +37,78 @@ export interface QualityAuditResult {
   details: string;
 }
 
+export interface ProcessJobOptions {
+  workerId?: string;
+  attempt?: number;
+}
+
+export function buildConversionReport(
+  elementorDoc: any,
+  validationStats?: ElementorValidationStats,
+  existingReport?: ConversionReport | null
+): ConversionReport {
+  let elementCount = 0;
+  let containerCount = 0;
+  let widgetCount = 0;
+  const widgetsUsedSet = new Set<string>();
+
+  if (existingReport?.widgetsUsed && Array.isArray(existingReport.widgetsUsed)) {
+    for (const w of existingReport.widgetsUsed) {
+      widgetsUsedSet.add(w);
+    }
+  }
+
+  const inspect = (el: any) => {
+    if (!el || typeof el !== 'object') return;
+    elementCount++;
+    if (el.elType === 'container' || el.elType === 'section' || el.elType === 'column') {
+      containerCount++;
+    } else if (el.elType === 'widget') {
+      widgetCount++;
+      if (el.widgetType) {
+        widgetsUsedSet.add(el.widgetType);
+      }
+    }
+    if (Array.isArray(el.elements)) {
+      for (const child of el.elements) {
+        inspect(child);
+      }
+    }
+  };
+
+  if (elementorDoc && Array.isArray(elementorDoc.content)) {
+    for (const rootEl of elementorDoc.content) {
+      inspect(rootEl);
+    }
+  }
+
+  if (validationStats && elementCount === 0) {
+    elementCount = validationStats.totalElements;
+    containerCount = validationStats.containers;
+    widgetCount = validationStats.widgets;
+    if (validationStats.widgetTypeCounts) {
+      for (const w of Object.keys(validationStats.widgetTypeCounts)) {
+        widgetsUsedSet.add(w);
+      }
+    }
+  }
+
+  const widgetsUsed = Array.from(widgetsUsedSet);
+
+  return {
+    widgetsUsed,
+    unsupportedFeatures: existingReport?.unsupportedFeatures || [],
+    warnings: existingReport?.warnings || [],
+    elementCount,
+    containerCount,
+    totalContainers: containerCount,
+    widgetCount,
+    totalWidgets: widgetCount,
+    diagnostics: existingReport?.diagnostics || [],
+    responsiveStats: existingReport?.responsiveStats,
+  };
+}
+
 function enforceFactualMetadata(
   doc: any,
   sourceHash: string,
@@ -40,8 +120,14 @@ function enforceFactualMetadata(
   if (!doc || typeof doc !== 'object') return;
   doc.meta = {
     sourceImageHash: sourceHash,
-    sourceWidth: typeof doc.meta?.sourceWidth === 'number' && doc.meta.sourceWidth > 0 ? doc.meta.sourceWidth : (sourceAsset?.width || 1440),
-    sourceHeight: typeof doc.meta?.sourceHeight === 'number' && doc.meta.sourceHeight > 0 ? doc.meta.sourceHeight : (sourceAsset?.height || 900),
+    sourceWidth:
+      typeof doc.meta?.sourceWidth === 'number' && doc.meta.sourceWidth > 0
+        ? doc.meta.sourceWidth
+        : sourceAsset?.width || 1440,
+    sourceHeight:
+      typeof doc.meta?.sourceHeight === 'number' && doc.meta.sourceHeight > 0
+        ? doc.meta.sourceHeight
+        : sourceAsset?.height || 900,
     analysisProvider: provider,
     analysisModel: model,
     analysisTimestamp: doc.meta?.analysisTimestamp || new Date().toISOString(),
@@ -56,8 +142,140 @@ export class ConversionOrchestrator {
   private aiRouter = getAIRouter();
   private storage = getStorage();
 
-  public async processJob(jobId: string): Promise<void> {
-    logger.info({ jobId }, 'Starting conversion job execution');
+  public async recordStageStart(
+    jobId: string,
+    stage: StageName,
+    attempt: number,
+    inputPayload?: any
+  ): Promise<Date> {
+    const startedAt = new Date();
+    try {
+      await prisma.jobStage.upsert({
+        where: {
+          jobId_stage_attempt: {
+            jobId,
+            stage,
+            attempt,
+          },
+        },
+        create: {
+          jobId,
+          stage,
+          attempt,
+          status: 'processing',
+          startedAt,
+          inputPayload: inputPayload ?? undefined,
+        },
+        update: {
+          status: 'processing',
+          startedAt,
+          errorMessage: null,
+          inputPayload: inputPayload ?? undefined,
+          updatedAt: startedAt,
+        },
+      });
+    } catch (err) {
+      logger.warn({ jobId, stage, attempt, err }, 'Failed to record stage start');
+    }
+    return startedAt;
+  }
+
+  public async recordStageCompletion(
+    jobId: string,
+    stage: StageName,
+    attempt: number,
+    startedAt: Date,
+    options?: {
+      outputPayload?: any;
+      providerName?: string;
+      modelName?: string;
+      tokensUsed?: number;
+    }
+  ): Promise<void> {
+    const completedAt = new Date();
+    const durationMs = completedAt.getTime() - startedAt.getTime();
+    try {
+      await prisma.jobStage.upsert({
+        where: {
+          jobId_stage_attempt: {
+            jobId,
+            stage,
+            attempt,
+          },
+        },
+        create: {
+          jobId,
+          stage,
+          attempt,
+          status: 'completed',
+          startedAt,
+          completedAt,
+          durationMs,
+          outputPayload: options?.outputPayload ?? undefined,
+          providerName: options?.providerName ?? undefined,
+          modelName: options?.modelName ?? undefined,
+          tokensUsed: options?.tokensUsed ?? undefined,
+        },
+        update: {
+          status: 'completed',
+          completedAt,
+          durationMs,
+          errorMessage: null,
+          outputPayload: options?.outputPayload ?? undefined,
+          providerName: options?.providerName ?? undefined,
+          modelName: options?.modelName ?? undefined,
+          tokensUsed: options?.tokensUsed ?? undefined,
+          updatedAt: completedAt,
+        },
+      });
+    } catch (err) {
+      logger.warn({ jobId, stage, attempt, err }, 'Failed to record stage completion');
+    }
+  }
+
+  public async recordStageFailure(
+    jobId: string,
+    stage: StageName,
+    attempt: number,
+    startedAt: Date,
+    errorMessage: string
+  ): Promise<void> {
+    const completedAt = new Date();
+    const durationMs = completedAt.getTime() - startedAt.getTime();
+    try {
+      await prisma.jobStage.upsert({
+        where: {
+          jobId_stage_attempt: {
+            jobId,
+            stage,
+            attempt,
+          },
+        },
+        create: {
+          jobId,
+          stage,
+          attempt,
+          status: 'failed',
+          startedAt,
+          completedAt,
+          durationMs,
+          errorMessage,
+        },
+        update: {
+          status: 'failed',
+          completedAt,
+          durationMs,
+          errorMessage,
+          updatedAt: completedAt,
+        },
+      });
+    } catch (err) {
+      logger.warn({ jobId, stage, attempt, err }, 'Failed to record stage failure');
+    }
+  }
+
+  public async processJob(jobId: string, options?: ProcessJobOptions): Promise<void> {
+    logger.info({ jobId, options }, 'Starting conversion job execution');
 
     const job = await prisma.conversionJob.findUnique({
       where: { id: jobId },
@@ -68,41 +286,175 @@ export class ConversionOrchestrator {
       throw new Error(`Job ${jobId} not found`);
     }
 
+    const now = new Date();
+    // Concurrency / duplicate execution prevention
+    if (options?.workerId) {
+      if (job.workerId && job.workerId !== options.workerId && job.leaseExpiresAt && job.leaseExpiresAt > now) {
+        throw new Error(`Job ${jobId} is actively leased to another worker (${job.workerId})`);
+      }
+    } else {
+      if (job.workerId && job.leaseExpiresAt && job.leaseExpiresAt > now) {
+        throw new Error(`Job ${jobId} is currently being processed by worker ${job.workerId}`);
+      }
+      // Lock for direct execution
+      await prisma.conversionJob.update({
+        where: { id: jobId },
+        data: {
+          lockedAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 3 * 60 * 1000),
+          lastHeartbeat: now,
+        },
+      });
+    }
+
+    const attempt = options?.attempt ?? (job.attempts > 0 ? job.attempts : 1);
+    let currentStageName: StageName | null = null;
+    let stageStartTime: Date | null = null;
+
     try {
       // Stage 1: VALIDATING_UPLOAD
+      currentStageName = 'upload_validation';
+      stageStartTime = await this.recordStageStart(jobId, 'upload_validation', attempt);
       await this.updateStatus(jobId, 'validating_upload', 'upload_validation');
-      const sourceAsset = job.sourceAssetId
-        ? await prisma.asset.findUnique({ where: { id: job.sourceAssetId } })
-        : null;
 
-      // Stage 2: ANALYZING_IMAGE -> DIR_READY
+      if (!job.sourceAssetId) {
+        throw new Error(`Job ${jobId} has no associated source asset (sourceAssetId is null)`);
+      }
+
+      const sourceAsset = await prisma.asset.findUnique({
+        where: { id: job.sourceAssetId },
+      });
+
+      if (!sourceAsset) {
+        throw new Error(`Source asset ${job.sourceAssetId} not found in database`);
+      }
+
+      if (!sourceAsset.storagePath) {
+        throw new Error(`Source asset ${sourceAsset.id} has no valid storagePath`);
+      }
+
+      let sourceBuffer: Buffer;
+      try {
+        sourceBuffer = await this.storage.download(sourceAsset.storagePath);
+      } catch (dlErr: any) {
+        throw new Error(`Failed to read source asset image from storage: ${dlErr?.message || dlErr}`);
+      }
+
+      if (!sourceBuffer || sourceBuffer.length === 0) {
+        throw new Error(`Source asset image at ${sourceAsset.storagePath} is empty (0 bytes)`);
+      }
+
+      const imageMeta = await getImageMetadata(sourceBuffer);
+      if (!imageMeta || imageMeta.width <= 0 || imageMeta.height <= 0) {
+        throw new Error(`Source asset at ${sourceAsset.storagePath} is not a valid image or has zero dimensions`);
+      }
+
+      await this.recordStageCompletion(jobId, 'upload_validation', attempt, stageStartTime, {
+        outputPayload: {
+          assetId: sourceAsset.id,
+          fileName: sourceAsset.fileName,
+          mimeType: sourceAsset.mimeType,
+          sizeBytes: sourceBuffer.length,
+          width: imageMeta.width,
+          height: imageMeta.height,
+        },
+      });
+
+      // Stage 2: ANALYZING_IMAGE
+      currentStageName = 'image_analysis';
+      stageStartTime = await this.recordStageStart(jobId, 'image_analysis', attempt);
       await this.updateStatus(jobId, 'analyzing_image', 'image_analysis');
 
+      await this.recordStageCompletion(jobId, 'image_analysis', attempt, stageStartTime, {
+        outputPayload: {
+          sourceAssetId: sourceAsset.id,
+          width: imageMeta.width,
+          height: imageMeta.height,
+          mimeType: sourceAsset.mimeType,
+          sha256: sourceAsset.sha256,
+        },
+      });
+
+      // Stage 3: DIR_GENERATION
+      currentStageName = 'dir_generation';
+      stageStartTime = await this.recordStageStart(jobId, 'dir_generation', attempt);
+
       let dirDoc: DIRDocument;
+      let aiResMeta: { provider?: string; model?: string; tokensUsed?: number } | undefined;
+
       const cachedStage = await prisma.jobStage.findFirst({
         where: { jobId, stage: 'dir_generation', status: 'completed' },
+        orderBy: { attempt: 'desc' },
       });
 
       if (cachedStage && cachedStage.outputPayload) {
-        logger.info({ jobId }, 'Resuming with existing DIR stage output');
-        dirDoc = cachedStage.outputPayload as unknown as DIRDocument;
+        logger.info({ jobId }, 'Checking cached DIR stage output for resume');
+        const validation = validateDIR(cachedStage.outputPayload as unknown as DIRDocument);
+        if (validation.valid) {
+          logger.info({ jobId }, 'Resuming with validated cached DIR output');
+          dirDoc = cachedStage.outputPayload as unknown as DIRDocument;
+        } else {
+          logger.warn({ jobId }, 'Cached DIR output failed schema validation; regenerating');
+          const genResult = await this.executeDIRStage(job, sourceAsset, sourceBuffer, imageMeta, attempt);
+          dirDoc = genResult.dirDoc;
+          aiResMeta = genResult.aiResMeta;
+        }
       } else if (job.dirArtifact) {
-        logger.info({ jobId }, 'Resuming with existing DIR artifact from job');
-        dirDoc = job.dirArtifact as unknown as DIRDocument;
+        logger.info({ jobId }, 'Checking existing job DIR artifact for resume');
+        const validation = validateDIR(job.dirArtifact as unknown as DIRDocument);
+        if (validation.valid) {
+          logger.info({ jobId }, 'Resuming with validated job DIR artifact');
+          dirDoc = job.dirArtifact as unknown as DIRDocument;
+        } else {
+          logger.warn({ jobId }, 'Job DIR artifact failed schema validation; regenerating');
+          const genResult = await this.executeDIRStage(job, sourceAsset, sourceBuffer, imageMeta, attempt);
+          dirDoc = genResult.dirDoc;
+          aiResMeta = genResult.aiResMeta;
+        }
       } else {
-        dirDoc = await this.executeDIRStage(job, sourceAsset);
+        const genResult = await this.executeDIRStage(job, sourceAsset, sourceBuffer, imageMeta, attempt);
+        dirDoc = genResult.dirDoc;
+        aiResMeta = genResult.aiResMeta;
       }
 
+      await this.recordStageCompletion(jobId, 'dir_generation', attempt, stageStartTime, {
+        outputPayload: dirDoc,
+        providerName: aiResMeta?.provider,
+        modelName: aiResMeta?.model,
+        tokensUsed: aiResMeta?.tokensUsed,
+      });
+
+      // Stage 4: DIR_VALIDATION
+      currentStageName = 'dir_validation';
+      stageStartTime = await this.recordStageStart(jobId, 'dir_validation', attempt);
       await this.updateStatus(jobId, 'dir_ready', 'dir_validation');
 
-      // Resolve and extract sub-assets (e.g. hero graphic artwork, logos) from source image
-      await this.resolveAndExtractAssets(job, sourceAsset, dirDoc);
+      const dirValidation = validateDIR(dirDoc);
+      if (!dirValidation.valid) {
+        const issues = dirValidation.errors.map((e) => `${e.path}: ${e.message}`).join('; ');
+        throw new Error(`Authoritative DIR validation failed: ${issues}`);
+      }
 
-      // Stage 3: GENERATING_ELEMENTOR (Stage C)
+      // Resolve and extract sub-assets (e.g. hero artwork, logos)
+      await this.resolveAndExtractAssets(job, sourceAsset, sourceBuffer, imageMeta, dirDoc);
+
+      await this.recordStageCompletion(jobId, 'dir_validation', attempt, stageStartTime, {
+        outputPayload: {
+          valid: true,
+          pageCount: dirDoc.pages?.length || 0,
+          sectionCount: dirDoc.pages?.[0]?.sections?.length || 0,
+          assetCount: dirDoc.assets?.length || 0,
+        },
+      });
+
+      // Stage 5: ELEMENTOR_GENERATION (Stage C)
+      currentStageName = 'elementor_generation';
+      stageStartTime = await this.recordStageStart(jobId, 'elementor_generation', attempt);
       await this.updateStatus(jobId, 'generating_elementor', 'elementor_generation');
 
       let initialDoc: any = null;
-      let report: any = null;
+      let report: ConversionReport | null = null;
+      let structureAiMeta: { provider?: string; model?: string; tokensUsed?: number } | undefined;
 
       const hasStructureProvider =
         (env.STRUCTURE_AI_PROVIDER && this.aiRouter.isProviderAvailable(env.STRUCTURE_AI_PROVIDER as any)) ||
@@ -126,11 +478,20 @@ export class ConversionOrchestrator {
             const val = validateElementor(parsed);
             if (val.valid) {
               initialDoc = parsed;
+              report = buildConversionReport(parsed, val.stats);
+              structureAiMeta = {
+                provider: aiGenRes.provider,
+                model: aiGenRes.model,
+                tokensUsed: (aiGenRes.usage?.inputTokens || 0) + (aiGenRes.usage?.outputTokens || 0),
+              };
               logger.info({ jobId }, 'Stage C: Skill-aware AI Elementor generation succeeded');
             }
           }
         } catch (aiGenErr: any) {
-          logger.warn({ jobId, err: aiGenErr?.message }, 'Stage C skill-aware AI generation skipped or failed; using compiler');
+          logger.warn(
+            { jobId, err: aiGenErr?.message },
+            'Stage C skill-aware AI generation skipped or failed; using compiler'
+          );
         }
       }
 
@@ -140,12 +501,33 @@ export class ConversionOrchestrator {
         report = compiled.report;
       }
 
-      // Stage 4: VALIDATING_ELEMENTOR & SELF-HEALING GATE (Stage D)
+      // Ensure report is always initialized
+      if (!report) {
+        const val = validateElementor(initialDoc);
+        report = buildConversionReport(initialDoc, val.stats);
+      }
+
+      await this.recordStageCompletion(jobId, 'elementor_generation', attempt, stageStartTime, {
+        outputPayload: {
+          elementCount: report.elementCount,
+          containerCount: report.containerCount,
+          widgetCount: report.widgetCount,
+          widgetsUsed: report.widgetsUsed,
+        },
+        providerName: structureAiMeta?.provider,
+        modelName: structureAiMeta?.model,
+        tokensUsed: structureAiMeta?.tokensUsed,
+      });
+
+      // Stage 6: ELEMENTOR_VALIDATION & SELF-HEALING GATE (Stage D)
+      currentStageName = 'elementor_validation';
+      stageStartTime = await this.recordStageStart(jobId, 'elementor_validation', attempt);
       await this.updateStatus(jobId, 'validating_elementor', 'elementor_validation');
+
       let elementorDoc = initialDoc;
       let validation = validateElementor(elementorDoc);
 
-      // Execute Stage D Self-Healing Gate if review provider is available or validation found issues
+      // Execute Stage D Self-Healing Gate if review provider is available and validation found issues
       if (this.aiRouter.isProviderAvailable('openrouter') && !validation.valid) {
         try {
           const healingPrompt = getElementorSelfHealingGatePrompt(dirDoc, elementorDoc, validation.errors);
@@ -170,32 +552,40 @@ export class ConversionOrchestrator {
             }
           }
         } catch (healErr: any) {
-          logger.warn({ jobId, err: healErr?.message }, 'Stage D AI self-healing gate encountered error; adhering to compiled AST');
+          logger.warn(
+            { jobId, err: healErr?.message },
+            'Stage D AI self-healing gate encountered error; adhering to compiled AST'
+          );
         }
+      }
+
+      // Authoritative validation check — re-validate and fail if invalid
+      if (!validation.valid) {
+        const issueStr = validation.errors.map((e) => `${e.path}: ${e.message}`).join('; ');
+        throw new Error(`Authoritative Elementor validation failed: ${issueStr}`);
       }
 
       // Verify deterministic visual quality & structural completeness
       const qualityAudit = this.verifyVisualQuality(dirDoc, elementorDoc);
       logger.info({ jobId, qualityAudit }, 'Visual quality verification passed');
 
-      if (!validation.valid) {
-        logger.warn({ jobId, errors: validation.errors }, 'Elementor validation warnings/errors encountered');
-      }
+      // Update report with final validated document stats
+      report = buildConversionReport(elementorDoc, validation.stats, report);
 
-      await prisma.jobStage.create({
-        data: {
-          jobId: job.id,
-          stage: 'elementor_validation',
-          status: 'completed',
-          outputPayload: {
-            valid: validation.valid,
-            qualityAudit,
-            widgetsUsed: Array.from(report.widgetsUsed),
-            elementCount: report.elementCount,
-          } as any,
-          durationMs: 0,
+      await this.recordStageCompletion(jobId, 'elementor_validation', attempt, stageStartTime, {
+        outputPayload: {
+          valid: true,
+          qualityAudit,
+          widgetsUsed: report.widgetsUsed,
+          elementCount: report.elementCount,
+          containerCount: report.containerCount,
+          widgetCount: report.widgetCount,
         },
       });
+
+      // Stage 7: PREVIEW_RENDERING & ARTIFACT PERSISTENCE
+      currentStageName = 'preview_rendering';
+      stageStartTime = await this.recordStageStart(jobId, 'preview_rendering', attempt);
 
       // Save Elementor JSON artifact
       const serialized = serializeElementorTemplate(elementorDoc);
@@ -203,7 +593,7 @@ export class ConversionOrchestrator {
       const storageKey = `projects/${job.projectId}/elementor-${jobId}.json`;
       const uploadRes = await this.storage.upload(storageKey, elementorBuffer, 'application/json');
 
-      await prisma.asset.create({
+      const elementorAsset = await prisma.asset.create({
         data: {
           projectId: job.projectId,
           fileName: `elementor-${jobId}.json`,
@@ -214,13 +604,27 @@ export class ConversionOrchestrator {
           sha256: uploadRes.contentHash,
           metadata: {
             elementCount: report.elementCount,
+            containerCount: report.containerCount,
+            widgetCount: report.widgetCount,
             widgetsUsed: report.widgetsUsed,
             qualityAudit: qualityAudit as any,
           },
         },
       });
 
-      // Update job to preview_ready
+      const previewArtifact = {
+        elementorAssetId: elementorAsset.id,
+        storagePath: uploadRes.key,
+        elementCount: report.elementCount,
+        containerCount: report.containerCount,
+        widgetCount: report.widgetCount,
+        widgetsUsed: report.widgetsUsed,
+        qualityAudit,
+        visualQuality: qualityAudit,
+        renderedAt: new Date().toISOString(),
+      };
+
+      // Update job to preview_ready with all verified artifacts
       await prisma.conversionJob.update({
         where: { id: jobId },
         data: {
@@ -228,53 +632,69 @@ export class ConversionOrchestrator {
           currentStage: 'preview_rendering',
           dirArtifact: dirDoc as any,
           elementorArtifact: elementorDoc as any,
+          previewArtifact: previewArtifact as any,
         },
       });
 
-      logger.info({ jobId }, 'Conversion job completed successfully');
+      await this.recordStageCompletion(jobId, 'preview_rendering', attempt, stageStartTime, {
+        outputPayload: previewArtifact,
+      });
+
+      logger.info({ jobId }, 'Conversion job completed successfully through all 7 stages');
     } catch (err: any) {
       logger.error({ jobId, error: err.message }, 'Conversion job failed');
-      try {
-        await prisma.conversionJob.update({
-          where: { id: jobId },
-          data: {
-            status: 'failed',
-            errorMessage: err.message,
-            errorDetails: { stack: err.stack },
-          },
-        });
-      } catch {
-        // Job record might have been deleted concurrently
+
+      if (currentStageName && stageStartTime) {
+        await this.recordStageFailure(jobId, currentStageName, attempt, stageStartTime, err.message);
+      }
+
+      if (!options?.workerId) {
+        try {
+          await prisma.conversionJob.update({
+            where: { id: jobId },
+            data: {
+              status: 'failed',
+              errorMessage: err.message,
+              errorDetails: { stack: err.stack },
+              lockedAt: null,
+              leaseExpiresAt: null,
+              workerId: null,
+            },
+          });
+        } catch {
+          // Job record might have been deleted concurrently
+        }
       }
       throw err;
     }
   }
 
-  private async executeDIRStage(job: any, sourceAsset: any): Promise<DIRDocument> {
+  private async executeDIRStage(
+    job: any,
+    sourceAsset: any,
+    sourceBuffer: Buffer,
+    sourceMeta: { width: number; height: number },
+    attempt: number
+  ): Promise<{
+    dirDoc: DIRDocument;
+    aiResMeta: { provider: string; model: string; tokensUsed: number };
+  }> {
     const prompt = getImageAnalysisPrompt({
-      width: sourceAsset?.width || 1440,
-      height: sourceAsset?.height || 900,
+      width: sourceMeta.width || sourceAsset?.width || 1440,
+      height: sourceMeta.height || sourceAsset?.height || 900,
       mimeType: sourceAsset?.mimeType || 'image/png',
       sha256: sourceAsset?.sha256 || 'mock-hash',
     });
 
+    const mime = sourceAsset.mimeType || 'image/png';
+    const dataUri = `data:${mime};base64,${sourceBuffer.toString('base64')}`;
     const userParts: any[] = [
       { type: 'text', text: prompt.userPrompt },
+      {
+        type: 'image_url',
+        image_url: { url: dataUri },
+      },
     ];
-
-    if (sourceAsset?.storagePath) {
-      try {
-        const imgBuffer = await this.storage.download(sourceAsset.storagePath);
-        const mime = sourceAsset.mimeType || 'image/png';
-        const dataUri = `data:${mime};base64,${imgBuffer.toString('base64')}`;
-        userParts.push({
-          type: 'image_url',
-          image_url: { url: dataUri },
-        });
-      } catch (err: any) {
-        logger.warn({ storagePath: sourceAsset.storagePath, err: err?.message }, 'Could not attach image buffer to vision request');
-      }
-    }
 
     const sourceHash = sourceAsset?.sha256 || 'mock-hash';
     const schemaVer = '1.0.0';
@@ -285,7 +705,7 @@ export class ConversionOrchestrator {
       role: 'vision',
       messages: [
         { role: 'system', content: prompt.systemPrompt },
-        { role: 'user', content: userParts.length > 1 ? userParts : prompt.userPrompt },
+        { role: 'user', content: userParts },
       ],
       responseFormat: { type: 'json_object' },
       sourceImageHash: sourceHash,
@@ -298,7 +718,10 @@ export class ConversionOrchestrator {
 
     // Check for explicit output truncation
     if (aiRes.finishReason === 'length') {
-      logger.warn({ jobId: job.id, provider: aiRes.provider }, 'AI vision response was truncated by output token limit (finishReason: length)');
+      logger.warn(
+        { jobId: job.id, provider: aiRes.provider },
+        'AI vision response was truncated by output token limit (finishReason: length)'
+      );
       const cacheKey = this.aiRouter.computeCacheKey({
         sourceImageHash: sourceHash,
         schemaVersion: schemaVer,
@@ -323,7 +746,9 @@ export class ConversionOrchestrator {
       await this.aiRouter.invalidateCacheKey(cacheKey);
 
       if (aiRes.finishReason === 'length') {
-        throw new Error('AI generation was truncated due to output token limit (finish_reason: length). Could not parse complete DIR JSON.');
+        throw new Error(
+          'AI generation was truncated due to output token limit (finish_reason: length). Could not parse complete DIR JSON.'
+        );
       }
       throw new Error(`Failed to parse AI output as DIR JSON: ${parsed.error}`);
     }
@@ -390,7 +815,10 @@ export class ConversionOrchestrator {
                 currentDoc.pages[0].sections[secIdx] = normalizeSection(rawSec);
               }
             } catch (err: any) {
-              logger.warn({ secIdx, error: err?.message }, 'Section-level repair failed; will fall back to document repair');
+              logger.warn(
+                { secIdx, error: err?.message },
+                'Section-level repair failed; will fall back to document repair'
+              );
             }
           }
         }
@@ -402,12 +830,15 @@ export class ConversionOrchestrator {
       }
 
       // Strategy 2: Document-level bounded repair if still invalid (max 2 attempts)
-      let attempt = 0;
-      const maxAttempts = 2;
+      let repairAttempt = 0;
+      const maxRepairAttempts = 2;
 
-      while (!validation.valid && attempt < maxAttempts) {
-        attempt++;
-        logger.info({ attempt, maxAttempts, errorCount: validation.errors.length }, 'Executing document-level DIR repair');
+      while (!validation.valid && repairAttempt < maxRepairAttempts) {
+        repairAttempt++;
+        logger.info(
+          { attempt: repairAttempt, maxAttempts: maxRepairAttempts, errorCount: validation.errors.length },
+          'Executing document-level DIR repair'
+        );
 
         const repairPrompt = getDIRRepairPrompt(currentDoc, validation.errors);
         const repairRes = await this.aiRouter.execute({
@@ -426,7 +857,9 @@ export class ConversionOrchestrator {
 
         if (repairRes.finishReason === 'length') {
           logger.warn('DIR repair output was truncated by token limit (finish_reason: length)');
-          throw new Error('DIR repair output was truncated by output token limit (finish_reason: length). Document cannot be safely repaired as a single monolith.');
+          throw new Error(
+            'DIR repair output was truncated by output token limit (finish_reason: length). Document cannot be safely repaired as a single monolith.'
+          );
         }
 
         const repairedParsed = parseDIRFromAIOutput(repairRes.content);
@@ -446,27 +879,21 @@ export class ConversionOrchestrator {
     }
 
     const validDoc = validation.document!;
-
-    // Persist Validated Stage Result
-    await prisma.jobStage.create({
-      data: {
-        jobId: job.id,
-        stage: 'dir_generation',
-        status: 'completed',
-        outputPayload: validDoc as any,
-        providerName: aiRes.provider,
-        modelName: aiRes.model,
-        tokensUsed: aiRes.usage.inputTokens + aiRes.usage.outputTokens,
-        durationMs: aiRes.latencyMs,
+    return {
+      dirDoc: validDoc,
+      aiResMeta: {
+        provider: aiRes.provider,
+        model: aiRes.model,
+        tokensUsed: (aiRes.usage?.inputTokens || 0) + (aiRes.usage?.outputTokens || 0),
       },
-    });
-
-    return validDoc;
+    };
   }
 
   private async resolveAndExtractAssets(
     job: any,
     sourceAsset: any,
+    sourceBuffer: Buffer,
+    meta: { width: number; height: number },
     dirDoc: DIRDocument
   ): Promise<void> {
     if (!dirDoc.assets) {
@@ -518,19 +945,7 @@ export class ConversionOrchestrator {
       }
     }
 
-    // 3. Download source asset buffer if available for cropping
-    let sourceBuffer: Buffer | null = null;
-    let meta: { width: number; height: number } | null = null;
-    if (sourceAsset?.storagePath) {
-      try {
-        sourceBuffer = await this.storage.download(sourceAsset.storagePath);
-        meta = await getImageMetadata(sourceBuffer);
-      } catch (err: any) {
-        logger.warn({ storagePath: sourceAsset.storagePath, err: err?.message }, 'Could not download/inspect source asset for sub-asset extraction');
-      }
-    }
-
-    // 4. Resolve and extract cropped assets for all visual assets or referenced assets
+    // 3. Resolve and extract cropped assets for all visual assets or referenced assets
     for (const asset of dirDoc.assets) {
       const isReferencedByImage = imageNodes.some((n) => n.assetId === asset.id);
       const isVisualType = ['image', 'logo', 'icon', 'background', 'placeholder'].includes(asset.type);
@@ -636,7 +1051,7 @@ export class ConversionOrchestrator {
       }
     }
 
-    // 5. Propagate resolved URLs down to all image nodes in the DIR tree
+    // 4. Propagate resolved URLs down to all image nodes in the DIR tree
     const updateNodeUrls = (node: any) => {
       if (node.kind === 'image') {
         if (!node.url && node.assetId) {
@@ -687,13 +1102,17 @@ export class ConversionOrchestrator {
 
     for (const page of dirDoc.pages) {
       if (!page.sections || !Array.isArray(page.sections) || page.sections.length === 0) {
-        throw new Error(`Quality verification failed: Page "${page.id || page.name || 'unnamed'}" contains no sections`);
+        throw new Error(
+          `Quality verification failed: Page "${page.id || page.name || 'unnamed'}" contains no sections`
+        );
       }
       for (const sec of page.sections) {
         totalSections++;
         const children = sec.children || (sec as any).nodes || (sec as any).elements;
         if (!children || !Array.isArray(children) || children.length === 0) {
-          throw new Error(`Quality verification failed: Section "${sec.id || sec.role || 'unnamed'}" contains 0 elements`);
+          throw new Error(
+            `Quality verification failed: Section "${sec.id || sec.role || 'unnamed'}" contains 0 elements`
+          );
         }
         totalDirNodes += this.countNodesRecursive(children);
       }
@@ -770,10 +1189,13 @@ export class ConversionOrchestrator {
       }
     }
 
-    const headerSection = dirDoc.pages?.[0]?.sections?.find((s) => s.role === 'header' || s.role === 'navigation');
+    const headerSection = dirDoc.pages?.[0]?.sections?.find(
+      (s) => s.role === 'header' || s.role === 'navigation'
+    );
     if (headerSection) {
       const headerContainer = elementorDoc.content?.find(
-        (el: any) => el.settings?._section_role === 'header' || el.settings?._section_role === 'navigation'
+        (el: any) =>
+          el.settings?._section_role === 'header' || el.settings?._section_role === 'navigation'
       );
       if (headerContainer && headerContainer.settings?.flex_direction !== 'row') {
         logger.warn('Visual quality warning: Header section flex_direction is not set to row');

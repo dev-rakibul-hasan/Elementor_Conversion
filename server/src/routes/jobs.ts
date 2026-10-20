@@ -4,9 +4,9 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 import { requireAuth } from '../middleware/auth.js';
 import { NotFoundError } from '../lib/errors.js';
-import { getConversionOrchestrator } from '../modules/conversion/orchestrator.js';
 
 export const jobsRouter = Router();
 jobsRouter.use(requireAuth);
@@ -102,15 +102,18 @@ jobsRouter.post('/:id/retry', async (req: Request, res: Response, next: NextFunc
       where: { id },
       data: {
         status: 'queued',
+        attempts: 0,
+        workerId: null,
+        lockedAt: null,
+        leaseExpiresAt: null,
+        lastHeartbeat: null,
         errorMessage: null,
+        errorDetails: Prisma.DbNull,
       },
     });
-
-    getConversionOrchestrator().processJob(id).catch(() => {});
 
     res.json({ success: true, message: 'Job retry queued' });
   } catch (err) {
     next(err);
   }
 });
-
