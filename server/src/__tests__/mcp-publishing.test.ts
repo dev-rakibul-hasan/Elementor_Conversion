@@ -94,6 +94,20 @@ describe('Audit F — Elementor MCP Protocol & Publisher Robustness (MOCK MCP TE
     expect(result.idempotencyKey).toBe('idemp-audit-success-1');
   });
 
+  it('reuses a persisted publishing receipt across publisher instances without another page creation', async () => {
+    mockServer.mode = 'success';
+    const config = { siteUrl: serverInfo.url, mcpEndpoint: `${serverInfo.url}/wp-json/mcp/v1/sse`, credentials: { username: 'admin', applicationPassword: 'mock-password' } };
+    const request = { siteConfigId: 'site-audit-f', title: 'Replay Page', elementorJson: { ...dummyElementorDoc, page_settings: { background_color: '#123456' } }, publishMode: 'draft' as const, resourceType: 'page' as const, idempotencyKey: 'replay-test' };
+    const first = await new MCPPublisher(config).publish(request);
+    const calls = mockServer.getRecordedToolCalls('wp_create_post').length;
+    const second = await new MCPPublisher(config).publish(request);
+    expect(first.success).toBe(true);
+    expect(second.success).toBe(true);
+    expect(second.remoteId).toBe(first.remoteId);
+    expect(second.verified).toBe(true);
+    expect(mockServer.getRecordedToolCalls('wp_create_post')).toHaveLength(calls);
+  });
+
   it('3. Handles permission_denied error gracefully with structured failure', async () => {
     mockServer.mode = 'permission_denied';
     const publisher = new MCPPublisher({

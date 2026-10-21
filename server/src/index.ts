@@ -7,6 +7,8 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { env, printConfigDiagnostics } from './config/index.js';
+import { getStorage } from './modules/storage/factory.js';
+import { prisma } from './lib/prisma.js';
 import { logger } from './lib/logger.js';
 import { requestId } from './middleware/requestId.js';
 import { errorHandler } from './middleware/errorHandler.js';
@@ -76,6 +78,21 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // 5b. Static asset serving for uploads & storage
 const localUploadsPath = path.resolve(process.cwd(), env.LOCAL_STORAGE_PATH);
+app.use(['/storage', '/uploads'], (_req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+app.use('/storage', async (req, res, next) => {
+  if (env.STORAGE_PROVIDER !== 'b2') return next();
+  try {
+    const key = decodeURIComponent(req.path).replace(/^\/+/, '');
+    if (key.split(/[\\/]/).includes('..')) return res.sendStatus(400);
+    const asset = await prisma.asset.findFirst({ where: { storagePath: key, storageProvider: 'b2' } });
+    if (!asset) return res.sendStatus(404);
+    const buffer = await getStorage().download(key);
+    res.type(asset.mimeType).send(buffer);
+  } catch (error) { next(error); }
+});
 app.use('/storage', express.static(localUploadsPath));
 app.use('/uploads', express.static(localUploadsPath));
 

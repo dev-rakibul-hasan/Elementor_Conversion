@@ -73,11 +73,13 @@ export default function PublishPage() {
         resourceType: 'page',
         title,
         mode: publishMode,
+        confirmPublish: true,
       });
 
+      if (!res?.success) throw new Error(res?.error || 'Publishing failed');
       if (res) {
         setPublishResult(res);
-        toast.success(`Page published as ${publishMode}!`);
+        toast.success(res.verified ? `Page saved as ${publishMode} and verified` : `Page saved as ${publishMode}; content verification unavailable`);
       } else {
         toast.error('Publishing failed');
       }
@@ -108,7 +110,7 @@ export default function PublishPage() {
               Elementor Canvas Page
             </Badge>
             <Badge variant="neutral" className="text-xs font-mono">
-              Elementor v3.24.7
+              Elementor Canvas
             </Badge>
           </div>
           <p className="text-sm text-muted-foreground mt-1">
@@ -121,10 +123,11 @@ export default function PublishPage() {
             <div className="h-14 w-14 rounded-full bg-emerald-500/10 flex items-center justify-center text-emerald-500 mx-auto">
               <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h2 className="text-2xl font-bold text-foreground">Successfully Published as WordPress Page!</h2>
+            <h2 className="text-2xl font-bold text-foreground">Page saved as {publishResult.status === 'draft' ? 'draft' : 'published'}</h2>
             <p className="text-muted-foreground text-sm max-w-md mx-auto">
               Your design has been compiled into native Elementor Flexbox structures and registered under WordPress <strong>Pages &gt; All Pages</strong>.
             </p>
+            <p className="text-xs text-muted-foreground">{publishResult.verified ? 'Saved Elementor content and settings verified.' : 'Saved page; content verification was unavailable.'}</p>
             <div className="bg-card border border-border rounded-xl p-4 max-w-sm mx-auto text-left text-xs space-y-2 font-mono">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Page ID:</span>

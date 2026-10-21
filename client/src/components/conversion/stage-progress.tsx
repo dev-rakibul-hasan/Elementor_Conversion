@@ -20,6 +20,7 @@ import { EASE_OUT_EXPO } from '@/lib/animations';
 
 interface StageProgressProps {
   currentStage?: StageName | null;
+  currentAttempt?: number;
   overallStatus: string;
   stages?: JobStage[];
   errorMessage?: string | null;
@@ -43,13 +44,13 @@ const PIPELINE_STEPS: StepConfig[] = [
   },
   {
     key: 'image_analysis',
-    label: 'Stage A: Vision & Canvas Isolation',
-    description: 'Auto mockup cropping, canvas bounds & visual perception',
+    label: 'Source Image Metadata',
+    description: 'Read image dimensions, format and content hash',
     icon: Sparkles,
   },
   {
     key: 'dir_generation',
-    label: 'Stage B: Canonical DIR Schema',
+    label: 'Vision Analysis & DIR Generation',
     description: 'Nested Flexbox tree, typography spans & pill forms',
     icon: Palette,
   },
@@ -68,13 +69,13 @@ const PIPELINE_STEPS: StepConfig[] = [
   {
     key: 'elementor_validation',
     label: 'Stage D: Self-Healing & Verification',
-    description: 'Widget restoration audit & 100% deployable schema gate',
+    description: 'Validate schema and check content against the DIR',
     icon: FileCheck,
   },
   {
     key: 'preview_rendering',
-    label: 'Preview & QA',
-    description: 'Generating visual preview and inspectable artifacts',
+    label: 'Save Conversion Artifacts',
+    description: 'Save inspectable JSON; visual preview is not rendered',
     icon: Eye,
   },
   {
@@ -87,6 +88,7 @@ const PIPELINE_STEPS: StepConfig[] = [
 
 export function StageProgress({
   currentStage,
+  currentAttempt,
   overallStatus,
   stages = [],
   errorMessage,
@@ -96,10 +98,12 @@ export function StageProgress({
   // Map recorded stage records by stage key
   const stageMap = new Map<StageName, JobStage>();
   stages.forEach((st) => {
-    stageMap.set(st.stage, st);
+    if (currentAttempt && st.stage !== 'publishing' && st.attempt < currentAttempt) return;
+    if (!stageMap.has(st.stage) || stageMap.get(st.stage)!.attempt < st.attempt) stageMap.set(st.stage, st);
   });
 
   const getStepStatus = (stepKey: StageName, stepIndex: number): StageStatus => {
+    if (overallStatus === 'queued' || overallStatus === 'retrying') return 'pending';
     // If recorded in stages list:
     const recorded = stageMap.get(stepKey);
     if (recorded) {
@@ -160,7 +164,7 @@ export function StageProgress({
                 onClick={onRetry}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-destructive px-3 py-1.5 text-xs font-semibold text-white hover:bg-destructive/90 transition-colors"
               >
-                Retry from last failed stage
+                Retry conversion
               </button>
             </div>
           )}

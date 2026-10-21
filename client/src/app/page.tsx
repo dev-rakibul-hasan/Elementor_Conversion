@@ -234,6 +234,7 @@ export default function DashboardPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2.5 shrink-0">
+                  {process.env.NODE_ENV !== 'production' && (
                   <Button
                     onClick={handleQuickDevLogin}
                     isLoading={quickLoginLoading}
@@ -243,6 +244,7 @@ export default function DashboardPage() {
                   >
                     1-Click Dev Sign-In
                   </Button>
+                  )}
                   <Link href="/auth/login">
                     <Button variant="outline" size="sm" className="flex items-center gap-2" leftIcon={<LogIn className="w-3.5 h-3.5" />}>
                       Sign In

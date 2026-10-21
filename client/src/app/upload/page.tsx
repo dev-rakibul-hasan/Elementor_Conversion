@@ -87,6 +87,11 @@ export default function UploadPage() {
 
     // Auto-login with dev user if guest
     const storedToken = typeof window !== 'undefined' ? localStorage.getItem('dte_token') : null;
+    if (!storedToken && process.env.NODE_ENV === 'production') {
+      toast.error('Please sign in before uploading designs');
+      router.push('/auth/login');
+      return;
+    }
     if (!storedToken) {
       try {
         toast('Signing in automatically as dev user...', { icon: '🔑' });
@@ -100,7 +105,7 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
-      await api.upload.uploadImage(selectedFile, projectName);
+      await api.upload.uploadImage(selectedFile, projectName, undefined, description);
       toast.success('Design uploaded successfully! Conversion pipeline queued.');
       router.push('/');
     } catch (err: unknown) {
@@ -159,18 +164,18 @@ export default function UploadPage() {
                     <Info className="w-4 h-4 text-primary" /> Guest Mode Notice
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    You can upload immediately; clicking submit will automatically register a local developer session.
+                    {process.env.NODE_ENV === 'production' ? 'Sign in to upload and convert your designs.' : 'Submitting an upload will sign you into the local development account.'}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button
                     size="sm"
-                    onClick={handleQuickDevLogin}
+                    onClick={process.env.NODE_ENV === 'production' ? () => router.push('/auth/login') : handleQuickDevLogin}
                     isLoading={quickLoginLoading}
                     className="flex items-center gap-1.5"
                     leftIcon={<Zap className="w-3.5 h-3.5" />}
                   >
-                    1-Click Sign-In
+                    {process.env.NODE_ENV === 'production' ? 'Sign In' : '1-Click Sign-In'}
                   </Button>
                 </div>
               </div>

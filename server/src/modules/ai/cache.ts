@@ -63,7 +63,8 @@ export class StageAICache {
     if (typeof input === 'string') return input.trim();
     try {
       // Deterministic JSON stringify with sorted keys
-      return JSON.stringify(input, Object.keys(input).sort());
+      const stable = (value: any): any => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, stable(value[key])])) : value;
+      return JSON.stringify(stable(input));
     } catch {
       return String(input);
     }
@@ -82,6 +83,8 @@ export class StageAICache {
     const normModel = components.model.trim().toLowerCase();
 
     const canonicalString = [
+      'cache-v2',
+      components.stage || '',
       normSourceImage,
       normInput,
       normSchemaVer,

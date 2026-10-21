@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Elementor MCP Bridge & REST API Enhancer
  * Description: Model Context Protocol (MCP) server endpoint and Elementor publishing bridge for design-to-elementor.
- * Version: 1.0.0
+ * Version: 1.1.0
  * Author: Antigravity
  */
 
@@ -10,61 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-// 1. Enable application passwords in all local environments
-add_filter( 'wp_is_application_passwords_available', '__return_true' );
-
-// 2. Authentication fallback: support both Application Passwords and main login password for API requests
-add_filter( 'determine_current_user', function( $user_id ) {
-    if ( ! empty( $user_id ) ) {
-        return $user_id;
-    }
-
-    $auth_header = '';
-    if ( isset( $_SERVER['HTTP_AUTHORIZATION'] ) ) {
-        $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
-    } elseif ( isset( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ) ) {
-        $auth_header = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
-    }
-
-    $user = null;
-    $pass = null;
-
-    if ( ! empty( $auth_header ) && preg_match( '/^Basic\s+(.*)$/i', $auth_header, $matches ) ) {
-        $decoded = base64_decode( $matches[1] );
-        if ( strpos( $decoded, ':' ) !== false ) {
-            list( $user, $pass ) = explode( ':', $decoded, 2 );
-        }
-    } elseif ( isset( $_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'] ) ) {
-        $user = $_SERVER['PHP_AUTH_USER'];
-        $pass = $_SERVER['PHP_AUTH_PW'];
-    }
-
-    if ( empty( $user ) || empty( $pass ) ) {
-        return $user_id;
-    }
-
-    $wp_user = get_user_by( 'login', $user );
-    if ( ! $wp_user && is_email( $user ) ) {
-        $wp_user = get_user_by( 'email', $user );
-    }
-
-    if ( ! $wp_user ) {
-        return $user_id;
-    }
-
-    // Try application password
-    $auth = wp_authenticate_application_password( null, $wp_user->user_login, $pass );
-    if ( $auth instanceof WP_User ) {
-        return $auth->ID;
-    }
-
-    // Fallback: check main user password
-    if ( wp_check_password( $pass, $wp_user->user_pass, $wp_user->ID ) ) {
-        return $wp_user->ID;
-    }
-
-    return $user_id;
-}, 20 );
+// Use WordPress application-password authentication; never accept the account's login password as an API fallback.
 
 // 3. Register Elementor post meta for REST API
 add_action( 'init', function() {
@@ -74,31 +20,36 @@ add_action( 'init', function() {
             'show_in_rest' => true,
             'single'       => true,
             'type'         => 'string',
-            'auth_callback' => '__return_true',
+            'auth_callback' => function( $allowed, $meta_key, $post_id ) { return current_user_can( 'edit_post', $post_id ); },
         ) );
         register_post_meta( $type, '_elementor_template_type', array(
             'show_in_rest' => true,
             'single'       => true,
             'type'         => 'string',
-            'auth_callback' => '__return_true',
+            'auth_callback' => function( $allowed, $meta_key, $post_id ) { return current_user_can( 'edit_post', $post_id ); },
         ) );
         register_post_meta( $type, '_elementor_data', array(
             'show_in_rest' => true,
             'single'       => true,
             'type'         => 'string',
-            'auth_callback' => '__return_true',
+            'auth_callback' => function( $allowed, $meta_key, $post_id ) { return current_user_can( 'edit_post', $post_id ); },
+        ) );
+        register_post_meta( $type, '_elementor_page_settings', array(
+            'show_in_rest' => array( 'schema' => array( 'type' => 'object', 'additionalProperties' => true ) ),
+            'single' => true, 'type' => 'object',
+            'auth_callback' => function( $allowed, $meta_key, $post_id ) { return current_user_can( 'edit_post', $post_id ); },
         ) );
         register_post_meta( $type, '_wp_page_template', array(
             'show_in_rest' => true,
             'single'       => true,
             'type'         => 'string',
-            'auth_callback' => '__return_true',
+            'auth_callback' => function( $allowed, $meta_key, $post_id ) { return current_user_can( 'edit_post', $post_id ); },
         ) );
         register_post_meta( $type, '_elementor_version', array(
             'show_in_rest' => true,
             'single'       => true,
             'type'         => 'string',
-            'auth_callback' => '__return_true',
+            'auth_callback' => function( $allowed, $meta_key, $post_id ) { return current_user_can( 'edit_post', $post_id ); },
         ) );
     }
 } );
@@ -109,7 +60,7 @@ add_action( 'rest_api_init', function() {
         'methods'             => array( 'POST', 'GET' ),
         'callback'            => 'handle_elementor_mcp_request',
         'permission_callback' => function( $request ) {
-            return current_user_can( 'edit_pages' ) || current_user_can( 'manage_options' ) || is_user_logged_in();
+            return current_user_can( 'edit_pages' );
         },
     ) );
 } );
@@ -134,6 +85,7 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
             'result'  => array(
                 'protocolVersion'  => '2024-11-05',
                 'capabilities'     => array(
+                    'idempotentPublishing' => true,
                     'tools' => array(
                         'listChanged' => true,
                     ),
@@ -154,6 +106,11 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
             'id'      => $id,
             'result'  => array(
                 'tools' => array(
+                    array(
+                        'name' => 'dte_get_publish_result',
+                        'description' => 'Look up an idempotent publishing receipt for the authenticated user',
+                        'inputSchema' => array( 'type' => 'object', 'properties' => array( 'idempotency_key' => array( 'type' => 'string' ) ), 'required' => array( 'idempotency_key' ) ),
+                    ),
                     array(
                         'name'        => 'elementor_create_page',
                         'description' => 'Create a new WordPress page configured with Elementor JSON document',
@@ -224,6 +181,20 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
         $tool_name = isset( $params['name'] ) ? $params['name'] : '';
         $args      = isset( $params['arguments'] ) ? $params['arguments'] : array();
 
+        if ( $tool_name === 'dte_get_publish_result' ) {
+            $key = isset( $args['idempotency_key'] ) ? sanitize_text_field( $args['idempotency_key'] ) : '';
+            if ( ! $key ) return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32602, 'message' => 'Missing publishing key' ) );
+            $receipt = get_option( 'dte_publish_' . hash( 'sha256', get_current_user_id() . ':' . $key ) );
+            $data = array( 'state' => $receipt ? $receipt['state'] : 'missing' );
+            if ( isset( $receipt['response'] ) ) {
+                $data['result'] = $receipt['response']['result']['structuredData'];
+                $data['elements'] = $receipt['elements'];
+                $data['page_settings'] = $receipt['page_settings'];
+                if ( ! current_user_can( 'edit_post', $data['result']['id'] ) ) return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32003, 'message' => 'Permission denied for this page' ) );
+            }
+            return array( 'jsonrpc' => '2.0', 'id' => $id, 'result' => array( 'content' => array(), 'structuredData' => $data ) );
+        }
+
         if ( $tool_name === 'elementor_create_page' || $tool_name === 'wp_create_post' ) {
             $title      = ! empty( $args['title'] ) ? sanitize_text_field( $args['title'] ) : 'Untitled Page';
             $status     = ! empty( $args['status'] ) ? $args['status'] : 'draft';
@@ -237,6 +208,28 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
                     : $meta_input['_elementor_data'];
             }
 
+            if ( ! in_array( $post_type, array( 'page', 'post' ), true ) || ! in_array( $status, array( 'draft', 'publish' ), true ) ) {
+                return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32602, 'message' => 'Unsupported post type or status' ) );
+            }
+            $type_object = get_post_type_object( $post_type );
+            if ( ! $type_object || ! current_user_can( $type_object->cap->create_posts ) || ( $status === 'publish' && ! current_user_can( $type_object->cap->publish_posts ) ) ) {
+                return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32003, 'message' => 'Permission denied for page creation or publishing' ) );
+            }
+            $request_key = isset( $args['idempotency_key'] ) ? sanitize_text_field( $args['idempotency_key'] ) : '';
+            $operation_option = $request_key ? 'dte_publish_' . hash( 'sha256', get_current_user_id() . ':' . $request_key ) : '';
+            if ( $operation_option && ! add_option( $operation_option, array( 'state' => 'processing' ), '', false ) ) {
+                $existing = get_option( $operation_option );
+                if ( isset( $existing['response'] ) ) {
+                    $response = $existing['response'];
+                    if ( ! current_user_can( 'edit_post', $response['result']['structuredData']['id'] ) ) return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32003, 'message' => 'Permission denied for this page' ) );
+                    $response['id'] = $id;
+                    $response['result']['structuredData']['replayed'] = true;
+                    $response['result']['structuredData']['elements'] = $existing['elements'];
+                    $response['result']['structuredData']['page_settings'] = $existing['page_settings'];
+                    return $response;
+                }
+                return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32009, 'message' => 'This publishing request is in progress or requires reconciliation; no duplicate page was created' ) );
+            }
             $post_arr = array(
                 'post_title'   => $title,
                 'post_status'  => $status,
@@ -246,6 +239,7 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
 
             $post_id = wp_insert_post( $post_arr, true );
             if ( is_wp_error( $post_id ) ) {
+                if ( $operation_option ) delete_option( $operation_option );
                 return array(
                     'jsonrpc' => '2.0',
                     'id'      => $id,
@@ -261,13 +255,15 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
             update_post_meta( $post_id, '_elementor_template_type', 'wp-page' );
             update_post_meta( $post_id, '_wp_page_template', 'elementor_canvas' );
             update_post_meta( $post_id, '_elementor_version', $elementor_version );
+            $page_settings = isset( $args['page_settings'] ) ? $args['page_settings'] : ( isset( $meta_input['_elementor_page_settings'] ) ? $meta_input['_elementor_page_settings'] : array() );
+            update_post_meta( $post_id, '_elementor_page_settings', wp_slash( $page_settings ) );
             if ( ! empty( $elements ) ) {
                 update_post_meta( $post_id, '_elementor_data', wp_slash( json_encode( $elements ) ) );
             }
 
             // Apply any extra meta
             foreach ( $meta_input as $mk => $mv ) {
-                if ( $mk !== '_elementor_data' && $mk !== '_elementor_edit_mode' ) {
+                if ( in_array( $mk, array( '_elementor_template_type', '_wp_page_template', '_elementor_version' ), true ) ) {
                     update_post_meta( $post_id, $mk, $mv );
                 }
             }
@@ -286,7 +282,7 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
 
             $permalink = get_permalink( $post_id );
 
-            return array(
+            $response = array(
                 'jsonrpc' => '2.0',
                 'id'      => $id,
                 'result'  => array(
@@ -306,13 +302,15 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
                     ),
                 ),
             );
+            if ( $operation_option ) update_option( $operation_option, array( 'state' => 'completed', 'response' => $response, 'elements' => $elements, 'page_settings' => $page_settings ), false );
+            return $response;
         }
 
         if ( $tool_name === 'elementor_set_post_data' ) {
             $post_id  = isset( $args['post_id'] ) ? intval( $args['post_id'] ) : 0;
             $data     = isset( $args['data'] ) ? $args['data'] : array();
 
-            if ( ! $post_id ) {
+            if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
                 return array(
                     'jsonrpc' => '2.0',
                     'id'      => $id,
@@ -338,7 +336,7 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
         if ( $tool_name === 'wp_get_post' ) {
             $post_id = isset( $args['id'] ) ? intval( $args['id'] ) : 0;
             $post    = get_post( $post_id );
-            if ( ! $post ) {
+            if ( ! $post || ! current_user_can( 'read_post', $post_id ) ) {
                 return array(
                     'jsonrpc' => '2.0',
                     'id'      => $id,
@@ -362,6 +360,9 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
 
         if ( $tool_name === 'elementor_get_page_structure' ) {
             $post_id   = isset( $args['page_id'] ) ? intval( $args['page_id'] ) : 0;
+            if ( ! $post_id || ! current_user_can( 'edit_post', $post_id ) ) {
+                return array( 'jsonrpc' => '2.0', 'id' => $id, 'error' => array( 'code' => -32003, 'message' => 'Permission denied for this page' ) );
+            }
             $meta_data = get_post_meta( $post_id, '_elementor_data', true );
             $elements  = ! empty( $meta_data ) ? json_decode( $meta_data, true ) : array();
 
@@ -372,6 +373,7 @@ function handle_elementor_mcp_request( WP_REST_Request $request ) {
                     'structuredData' => array(
                         'page_id'  => $post_id,
                         'elements' => $elements,
+                        'page_settings' => get_post_meta( $post_id, '_elementor_page_settings', true ),
                     ),
                 ),
             );

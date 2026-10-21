@@ -283,7 +283,8 @@ export class AIRouter {
       return true;
     };
 
-    const targetModel =
+    const reviewModel = req.role === 'review' && providerName === env.REVIEW_AI_PROVIDER ? env.REVIEW_AI_MODEL : undefined;
+    const targetModel = reviewModel && isModelValidForProvider(reviewModel, providerName) ? reviewModel :
       (req.modelId && isModelValidForProvider(req.modelId, providerName))
         ? req.modelId
         : (providerName === 'gemini'
@@ -325,6 +326,8 @@ export class AIRouter {
     if (!req.bypassCache) {
       const cacheKey = this.cache.computeKey({
         sourceImageHash: req.sourceImageHash,
+        normalizedInput: req.messages,
+        skillVersion: req.skillVersion,
         schemaVersion: req.schemaVersion,
         promptVersion: req.promptVersion,
         provider: providerName,
@@ -344,6 +347,8 @@ export class AIRouter {
       if (!req.bypassCache && response && response.finishReason !== 'length') {
         await this.cache.set({
           sourceImageHash: req.sourceImageHash,
+          normalizedInput: req.messages,
+          skillVersion: req.skillVersion,
           schemaVersion: req.schemaVersion,
           promptVersion: req.promptVersion,
           provider: providerName,

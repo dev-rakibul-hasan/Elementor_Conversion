@@ -2,6 +2,7 @@
  * API Routes — Sites & MCP Publishing
  */
 
+import { createHash, randomUUID } from 'node:crypto';
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -9,7 +10,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../modules/security/encryption.js';
 import { MCPClient } from '../modules/mcp/client.js';
 import { MCPPublisher } from '../modules/mcp/publisher.js';
-import { NotFoundError, ValidationError } from '../lib/errors.js';
+import { NotFoundError, ValidationError, AppError } from '../lib/errors.js';
 import { logger } from '../lib/logger.js';
 
 export const sitesRouter = Router();
@@ -124,18 +125,12 @@ sitesRouter.post('/:id/test', async (req: Request, res: Response, next: NextFunc
 
     const testRes = await client.testConnection();
 
-    if (testRes.ok) {
-      await prisma.siteConnection.update({
-        where: { id },
-        data: {
-          lastVerifiedAt: new Date(),
-          isMcpAvailable: true,
-          discoveredTools: testRes.capabilities.availableTools as any,
-          wordpressVersion: testRes.capabilities.wordpressVersion,
-          elementorVersion: testRes.capabilities.elementorVersion,
-        },
-      });
-    }
+    await prisma.siteConnection.update({ where: { id }, data: {
+      lastVerifiedAt: new Date(), isMcpAvailable: testRes.ok,
+      discoveredTools: testRes.capabilities.availableTools as any,
+      wordpressVersion: testRes.capabilities.wordpressVersion || null,
+      elementorVersion: testRes.capabilities.elementorVersion || null,
+    } });
 
     res.json({ success: true, data: testRes });
   } catch (err) {
@@ -143,197 +138,91 @@ sitesRouter.post('/:id/test', async (req: Request, res: Response, next: NextFunc
   }
 });
 
+sitesRouter.delete('/:id', async (req, res, next) => {
+  try {
+    const removed = await prisma.siteConnection.deleteMany({ where: { id: req.params.id as string, userId: req.user!.id } });
+    if (!removed.count) throw new NotFoundError('Site');
+    res.json({ success: true, data: { success: true } });
+  } catch (error) { next(error); }
+});
+
+sitesRouter.get('/:id/capabilities', async (req, res, next) => {
+  try {
+    const site = await prisma.siteConnection.findFirst({ where: { id: req.params.id as string, userId: req.user!.id } });
+    if (!site) throw new NotFoundError('Site');
+    const client = new MCPClient({ siteUrl: site.siteUrl, credentials: JSON.parse(decrypt(site.encryptedCredentials)) });
+    const capabilities = await client.checkCapabilities();
+    res.json({ success: true, data: capabilities });
+  } catch (error) { next(error); }
+});
+
 export const publishRouter = Router();
 publishRouter.use(requireAuth);
-
 const publishSchema = z.object({
-  siteConfigId: z.string(),
-  resourceType: z.enum(['page', 'template']).default('page'),
-  title: z.string().min(1),
-  publishMode: z.enum(['draft', 'publish']).default('draft'),
-  confirmPublish: z.literal(true, {
-    errorMap: () => ({ message: 'Explicit confirmation required to publish' }),
-  }),
+  projectId: z.string().optional(), jobId: z.string().optional(),
+  siteConfigId: z.string().optional(), siteConnectionId: z.string().optional(),
+  resourceType: z.enum(['page']).default('page'), title: z.string().trim().min(1),
+  publishMode: z.enum(['draft', 'publish']).optional(), mode: z.enum(['draft', 'publish']).optional(),
+  confirmPublish: z.literal(true),
 });
 
-const directPublishSchema = z.object({
-  projectId: z.string().optional(),
-  jobId: z.string().optional(),
-  siteConfigId: z.string().optional(),
-  siteConnectionId: z.string().optional(),
-  resourceType: z.enum(['page', 'template']).default('page'),
-  title: z.string().min(1),
-  publishMode: z.enum(['draft', 'publish']).optional(),
-  mode: z.enum(['draft', 'publish']).optional(),
-  confirmPublish: z.boolean().optional(),
-});
-
-// Root endpoint for direct /publish
-publishRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
+async function publish(req: Request, res: Response, next: NextFunction) {
+  let claimed: { id: string; token: string; previousStatus: 'preview_ready' | 'published' } | undefined;
   try {
-    const userId = (req as any).user.userId;
-    const parsed = directPublishSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid publish request', parsed.error.format());
-    }
-
-    const { projectId, jobId, siteConfigId, siteConnectionId, resourceType, title } = parsed.data;
-    const effectiveSiteId = siteConfigId || siteConnectionId;
-    if (!effectiveSiteId) {
-      throw new ValidationError('Target site connection ID is required');
-    }
-
-    const publishMode = parsed.data.publishMode || parsed.data.mode || 'draft';
-
-    let job: any = null;
-    if (jobId) {
-      job = await prisma.conversionJob.findFirst({
-        where: { id: jobId, project: { userId } },
-        include: { project: true },
-      });
-    } else if (projectId) {
-      job = await prisma.conversionJob.findFirst({
-        where: { projectId, project: { userId } },
-        orderBy: { createdAt: 'desc' },
-        include: { project: true },
-      });
-    }
-
-    if (!job) {
-      throw new NotFoundError('Conversion job not found for publication');
-    }
-
-    const site = await prisma.siteConnection.findFirst({
-      where: { id: effectiveSiteId, userId },
+    const parsed = publishSchema.safeParse({ ...req.body, ...(req.params.jobId ? { jobId: req.params.jobId } : {}) });
+    if (!parsed.success) throw new ValidationError('Invalid publish request', parsed.error.format());
+    const input = parsed.data;
+    const userId = req.user!.id;
+    const siteId = input.siteConfigId || input.siteConnectionId;
+    if (!siteId) throw new ValidationError('Target site connection ID is required');
+    if (!input.jobId && !input.projectId) throw new ValidationError('A job or project ID is required');
+    const job = await prisma.conversionJob.findFirst({ where: {
+      ...(input.jobId ? { id: input.jobId } : { projectId: input.projectId }), project: { userId },
+    }, orderBy: { createdAt: 'desc' } });
+    if (!job) throw new NotFoundError('Conversion job');
+    if (!job.elementorArtifact) throw new ValidationError('Elementor document is not ready to publish');
+    const site = await prisma.siteConnection.findFirst({ where: { id: siteId, userId } });
+    if (!site) throw new NotFoundError('Site');
+    const mode = input.publishMode || input.mode || 'draft';
+    const idempotencyKey = createHash('sha256').update(JSON.stringify({
+      jobId: job.id, siteId, title: input.title, mode, document: job.elementorArtifact,
+    })).digest('hex');
+    const prior = await prisma.jobStage.findFirst({ where: {
+      jobId: job.id, stage: 'publishing', status: 'completed',
+      outputPayload: { path: ['idempotencyKey'], equals: idempotencyKey },
+    } });
+    if (prior) return res.json({ success: true, data: prior.outputPayload });
+    const token = `publish-${randomUUID()}`;
+    const claim = await prisma.conversionJob.updateMany({ where: {
+      id: job.id, OR: [
+        { status: { in: ['preview_ready', 'published'] }, workerId: null },
+        { status: 'publishing', leaseExpiresAt: { lte: new Date() } },
+      ],
+    }, data: { status: 'publishing', currentStage: 'publishing', workerId: token, leaseExpiresAt: new Date(Date.now() + 600000) } });
+    if (claim.count !== 1) throw new AppError('Job is busy or is not ready for publishing', 409, 'JOB_BUSY');
+    claimed = { id: job.id, token, previousStatus: job.status === 'published' ? 'published' : 'preview_ready' };
+    const publisher = new MCPPublisher({ siteUrl: site.siteUrl, credentials: JSON.parse(decrypt(site.encryptedCredentials)) });
+    const result = await publisher.publish({ elementorJson: job.elementorArtifact,
+      title: input.title, resourceType: 'page', publishMode: mode, siteConfigId: site.id, idempotencyKey, metadata: { projectId: job.projectId } });
+    await prisma.$transaction(async (tx) => {
+      const owned = await tx.conversionJob.updateMany({ where: { id: job.id, workerId: token, status: 'publishing' }, data: {
+        status: result.success ? 'published' : claimed!.previousStatus, currentStage: result.success ? 'publishing' : 'preview_rendering',
+        workerId: null, lockedAt: null, leaseExpiresAt: null,
+      } });
+      if (owned.count !== 1) throw new AppError('Publishing ownership was lost', 409, 'JOB_BUSY');
+      const last = await tx.jobStage.findFirst({ where: { jobId: job.id, stage: 'publishing' }, orderBy: { attempt: 'desc' } });
+      await tx.jobStage.create({ data: { jobId: job.id, stage: 'publishing', status: result.success ? 'completed' : 'failed',
+        attempt: (last?.attempt || 0) + 1, outputPayload: result as any, errorMessage: result.error, completedAt: new Date() } });
     });
-    if (!site) throw new NotFoundError('Connected site not found');
-
-    const elementorDoc = job.elementorArtifact;
-    if (!elementorDoc) {
-      throw new ValidationError('Elementor document is not ready to publish');
-    }
-
-    const creds = JSON.parse(decrypt(site.encryptedCredentials));
-    const publisher = new MCPPublisher({
-      siteUrl: site.siteUrl,
-      credentials: creds,
-    });
-
-    const idempotencyKey = `pub_${job.id}_${Date.now()}`;
-    const result = await publisher.publish({
-      elementorJson: elementorDoc,
-      title,
-      resourceType,
-      publishMode,
-      siteConfigId: site.id,
-      idempotencyKey,
-    });
-
-    if (result.success) {
-      const existingStage = await prisma.jobStage.findFirst({
-        where: { jobId: job.id, stage: 'publishing' },
-        orderBy: { attempt: 'desc' },
-      });
-      const nextAttempt = (existingStage?.attempt || 0) + 1;
-
-      await prisma.conversionJob.update({
-        where: { id: job.id },
-        data: {
-          status: 'published',
-          stages: {
-            create: {
-              stage: 'publishing',
-              status: 'completed',
-              attempt: nextAttempt,
-              outputPayload: result as any,
-              completedAt: new Date(),
-            },
-          },
-        },
-      }).catch((err) => {
-        logger.warn({ err: err?.message }, 'Failed to record publish stage to conversionJob');
-      });
-    }
-
+    claimed = undefined;
+    if (!result.success) return res.status(502).json({ success: false, data: result, error: { code: 'PUBLISH_FAILED', message: result.error } });
     res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
+  } catch (error) { next(error); }
+  finally {
+    if (claimed) await prisma.conversionJob.updateMany({ where: { id: claimed.id, workerId: claimed.token }, data: {
+      status: claimed.previousStatus, workerId: null, lockedAt: null, leaseExpiresAt: null,
+    } }).catch((error) => logger.error({ error }, 'Failed to release publishing lease'));
   }
-});
-
-publishRouter.post('/:jobId/publish', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const userId = (req as any).user.userId;
-    const jobId = req.params.jobId as string;
-
-    const parsed = publishSchema.safeParse(req.body);
-    if (!parsed.success) {
-      throw new ValidationError('Invalid publish request', parsed.error.format());
-    }
-
-    const job = await prisma.conversionJob.findUnique({
-      where: { id: jobId },
-      include: { project: true },
-    });
-    if (!job || job.project.userId !== userId) {
-      throw new NotFoundError('Conversion job not found');
-    }
-
-    const site = await prisma.siteConnection.findFirst({
-      where: { id: parsed.data.siteConfigId, userId },
-    });
-    if (!site) throw new NotFoundError('Connected site not found');
-
-    const elementorDoc = job.elementorArtifact;
-    if (!elementorDoc) {
-      throw new ValidationError('Elementor document is not ready to publish');
-    }
-
-    const creds = JSON.parse(decrypt(site.encryptedCredentials));
-    const publisher = new MCPPublisher({
-      siteUrl: site.siteUrl,
-      credentials: creds,
-    });
-
-    const idempotencyKey = `pub_${jobId}_${Date.now()}`;
-    const result = await publisher.publish({
-      elementorJson: elementorDoc,
-      title: parsed.data.title,
-      resourceType: parsed.data.resourceType,
-      publishMode: parsed.data.publishMode,
-      siteConfigId: site.id,
-      idempotencyKey,
-    });
-
-    if (result.success) {
-      const existingStage = await prisma.jobStage.findFirst({
-        where: { jobId: job.id, stage: 'publishing' },
-        orderBy: { attempt: 'desc' },
-      });
-      const nextAttempt = (existingStage?.attempt || 0) + 1;
-
-      await prisma.conversionJob.update({
-        where: { id: job.id },
-        data: {
-          status: 'published',
-          stages: {
-            create: {
-              stage: 'publishing',
-              status: 'completed',
-              attempt: nextAttempt,
-              outputPayload: result as any,
-              completedAt: new Date(),
-            },
-          },
-        },
-      }).catch((err) => {
-        logger.warn({ err: err?.message }, 'Failed to record publish stage to conversionJob');
-      });
-    }
-
-    res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
-  }
-});
-
+}
+publishRouter.post('/', publish);
+publishRouter.post('/:jobId/publish', publish);

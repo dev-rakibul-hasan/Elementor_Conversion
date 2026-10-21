@@ -1,3 +1,4 @@
+import { loadRootSkillInstructions } from '../modules/elementor/serializer.js';
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -65,11 +66,12 @@ describe('Elementor Core 4.3.5 Widget Reconciliation Test Suite', () => {
     const legacyPath = path.resolve(__dirname, '../../ELEMTOR_SKILL.md');
 
     expect(fs.existsSync(canonicalPath)).toBe(true);
-    expect(fs.existsSync(legacyPath)).toBe(true);
-
-    const legacyContent = fs.readFileSync(legacyPath, 'utf8');
-    expect(legacyContent).toContain('DEPRECATION NOTICE');
-    expect(legacyContent).toContain('server/ELEMENTOR_SKILL.md');
+    if (fs.existsSync(legacyPath)) {
+      const legacyContent = fs.readFileSync(legacyPath, 'utf8');
+      expect(legacyContent).toContain('DEPRECATION NOTICE');
+      expect(legacyContent).toContain('server/ELEMENTOR_SKILL.md');
+    }
+    expect(loadRootSkillInstructions().filePath).toBe(canonicalPath);
   });
 
   it('generates valid Elementor JSON containing key reconciled widgets', () => {

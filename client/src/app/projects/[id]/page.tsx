@@ -158,10 +158,10 @@ export default function ProjectDetailPage() {
           <div className="flex items-center gap-2.5 flex-wrap">
             {isFailed && (
               <Button variant="outline" size="sm" onClick={handleRetry} className="flex items-center gap-1.5">
-                <RefreshCw className="w-3.5 h-3.5" /> Retry Failed Stage
+                <RefreshCw className="w-3.5 h-3.5" /> Retry Conversion
               </Button>
             )}
-            {elementorData && (
+            {elementorData && isReady && (
               <>
                 <Button
                   variant="outline"
@@ -234,7 +234,7 @@ export default function ProjectDetailPage() {
             }`}
           >
             <Layers className="w-4 h-4" /> Elementor Canvas Page Structure
-            {elementorData && (
+            {elementorData && isReady && (
               <span className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full font-medium">
                 Page Ready
               </span>
@@ -256,6 +256,7 @@ export default function ProjectDetailPage() {
                   <StageProgress
                     overallStatus={job?.status || 'queued'}
                     currentStage={job?.currentStage}
+                    currentAttempt={job?.attempts}
                     stages={job?.stages || []}
                     errorMessage={job?.errorMessage}
                     errorDetails={job?.errorDetails}
@@ -297,7 +298,7 @@ export default function ProjectDetailPage() {
                     <div className="border border-border rounded-lg p-2 bg-secondary/30 text-center">
                       <p className="text-[11px] text-muted-foreground mb-2">Original Upload Asset</p>
                       <img
-                        src={`${API_BASE_URL}/storage/${project.assets[0].storagePath}`}
+                        src={`${API_BASE_URL}/storage/${(project.assets.find((asset) => asset.id === job?.sourceAssetId) || project.assets[0]).storagePath}`}
                         alt="Source design"
                         className="max-h-64 mx-auto rounded-md object-contain border border-border shadow-sm"
                         onError={(e) => {

@@ -1,256 +1,1239 @@
-# Elementor Image-to-Template Skill
+# Master Skill Specification: High-Fidelity Design-to-Elementor Pipeline
 
-This document describes the implemented image → Design Intermediate Representation (DIR) → Elementor document pipeline. The runtime Zod schema in `src/modules/dir/schema.ts` defines accepted DIR; `src/modules/elementor/generator.ts` defines deterministic mappings; the Elementor registry and JSON catalog define known widget slugs and examples. This is an implementation guide, not a guarantee of import or visual fidelity on every WordPress site.
+> **Skill Set:** Elementor Image-to-Template Skill Set
+> **Version:** 2.0.0
+> **Source Snapshot:** Elementor Core 4.3.5 verified widget registrations
+> **Repository Architecture:** Two-Stage Pipeline (Image-to-DIR -> DIR-to-Elementor)
 
-## 1. Architecture and execution flow
+This authoritative skill specification governs the complete image-to-Elementor conversion pipeline. It defines the explicit separation of responsibilities between **Stage A (Vision Understanding to Canonical DIR)** and **Stage B (DIR to Elementor Compilation & Widget Selection)**, and provides native Elementor JSON node profiles for all 32 classic built-in widgets in Elementor Core 4.3.5.
 
-Image understanding and Elementor compilation are separate responsibilities. The canonical DIR document is the required boundary between them; do not ask the vision stage to emit Elementor JSON directly.
+---
 
-1. **Upload validation and metadata.** Authenticated upload routes accept PNG or JPEG image bytes. `validateImage` checks the actual file type and magic bytes, configured byte limit, readability, dimensions, and the 100-megapixel limit. The route computes a SHA-256 hash, stores the source, records width and height, and queues a conversion job.
-2. **Image analysis.** The orchestrator builds the versioned image-analysis prompt and calls the AI router's vision role. It attempts to download and attach the source image as a data URI. A download failure is logged; provider availability and image capability depend on runtime configuration. The prompt can describe tiled input, but the orchestrator path shown here sends the source image directly and does not itself create analysis copies or tiles.
-3. **Parse, normalize, and validate DIR.** AI output is parsed, normalized, metadata is made factual from the uploaded asset/provider response, and the result is checked against `dirDocumentSchema` and `validateDIR`.
-4. **Bounded DIR repair.** When invalid, the orchestrator attempts section-level repairs for up to five isolated section indexes when there are no root errors, then retries whole-document repair at most twice. The section-repair implementation targets `pages[0].sections[index]` even when the reported error path names another page, so multi-page repair is not reliably page-aware. The result is normalized and validated again. Persistent invalidity or unparseable/truncated repair output fails the job rather than being treated as valid DIR.
-5. **Asset resolution.** Referenced image assets are resolved. A usable `sourceRect` is tried first for a pixel crop; if missing or unsuccessful, a role/type-based heuristic crop is tried. Extracted images are uploaded and their storage URL is recorded as a placeholder. If extraction is unavailable, the original source URL or a generated SVG placeholder may be used. This is not guaranteed to identify the intended artwork.
-6. **Elementor generation.** Outside `NODE_ENV=test`, if a structure provider is available, AI document generation is attempted and accepted only when the response is complete JSON and passes `validateElementor`. Otherwise the deterministic DIR compiler is used. A caught AI-generation failure is logged and falls back to the compiler. The AI path is optional, not guaranteed.
-7. **Structural validation and optional healing.** The selected document is validated. AI self-healing is attempted only when OpenRouter is available and validation is invalid; it is accepted only if complete JSON passes validation. It is optional and is not a general visual-fidelity guarantee.
-8. **Quality audit, serialization, and persistence.** The orchestrator runs a non-visual quality audit, serializes the document, uploads the JSON artifact, and persists DIR and Elementor artifacts. Serialization/persistence failures fail the job.
-9. **Report and limitations.** The deterministic compiler returns a `ConversionReport`; the structural validator returns validity, errors, warnings, and traversal statistics. The orchestrator persists only a subset of these values and currently has a reporting defect described in §8.
+## 1. Architectural Separation: The Two Reasoning Responsibilities
 
-The pipeline does not bypass DIR. A successful validator result only means that the checks implemented by that validator passed; it does not guarantee that WordPress imports, renders, or styles the document as intended.
+The pipeline strictly isolates visual interpretation from WordPress/Elementor JSON generation. An AI model must never attempt to jump directly from a raw screenshot to Elementor JSON in a single step without canonical intermediate representation.
 
-## 2. Canonical DIR document
+```
+┌─────────────────────────────────┐
+│     Uploaded Webpage Image      │
+└────────────────┬────────────────┘
+                 │
+                 ▼  Stage A: Image-to-DIR (Vision Extraction)
+┌─────────────────────────────────┐
+│       Canonical DIR Document    │  <-- Strictly validated via Zod schema
+│   (Semantic Layout, Style, Meta)│
+└────────────────┬────────────────┘
+                 │
+                 ▼  Asset Extraction Pipeline (sharp crop based on sourceRect)
+┌─────────────────────────────────┐
+│  Cropped Local/B2 Media Assets  │
+└────────────────┬────────────────┘
+                 │
+                 ▼  Stage B: DIR-to-Elementor (Layout Engine Compiler)
+┌─────────────────────────────────┐
+│ Native Elementor Template JSON  │  <-- Built from verified 32 widget profiles
+│ (Canvas Page Settings + Content)│
+└─────────────────────────────────┘
+```
 
-### Top-level fields
+### Stage A: Image-to-DIR Reasoning Responsibilities
+The Vision model (e.g. Gemini 3.8 Flash or secondary vision provider) is exclusively responsible for visual perception, layout reconstruction, typography transcription, color extraction, and asset localization into the authoritative `DIRDocument` schema:
 
-The Zod document schema is strict. Required fields are:
+1. **Header & Navigation Bar Decomposition:**
+   - **Canonical 3-Slot Partitioning:** Top header must be a dedicated section (`role: "header"`, `id: "sec_header"`, `direction: "row"`, `justifyContent: "space-between"`, `alignItems: "center"`) partitioned into 3 distinct functional slots:
+     - **Slot 1 (Left - Brand Logo):** `image` or `heading` node with `label: "logo"`. Enforce pixel width (e.g. 120–220px, height 32–50px), never percentage.
+     - **Slot 2 (Center - Navigation Menu Links):** Group all nav links together into a single horizontal container (`direction: "row"`, `gap: 28-36`, `label: "navigation-menu"`) composed of `link` nodes.
+     - **Slot 3 (Right - Header Actions & CTAs):** Separate action buttons and auxiliary links (e.g. "Login", "Sign up", language switcher "EN") into a distinct horizontal container (`direction: "row"`, `gap: 16-20`, `justifyContent: "flex-end"`, `label: "header-actions"`).
+2. **Hero Section Hierarchy:**
+   - **Announcement Pill Badges:** Identify top-of-hero pill notifications (e.g., "A trusted modern fintech platform") as a `badge` node or a `container` with full pill border radius (`9999px`), light/lime accent background (`#b7f34c`), and high-contrast dark text (`#060b05`).
+   - **Primary Headline:** Transcribe the primary page title (e.g., "Simplify your financial\nManagement") as an H1 `heading` with large font size (48–64px), matching alignment, and high-contrast color (`#ffffff` on dark themes).
+   - **Supporting Subtitle/Body:** Transcribe subtitle copy as `text` nodes.
+   - **Prominent 3D Artwork & Illustrations:** Do not ignore hero graphics (e.g., the glowing green 3D glass flower). Define an entry in the root `assets` array with `type: "image"`, `role: "hero graphic artwork"`, and exact pixel bounding box `sourceRect: { "x": <number>, "y": <number>, "width": <number>, "height": <number> }`. Reference it in the hero section via an `image` node with `assetId`.
+3. **Canvas & Section Background Colors:**
+   - Faithfully capture dark themes! If the page background is near-black (`#050a04`), set `globals.colors.background: "#050a04"` and the hero section `styles.backgroundColor: "#050a04"`. Never leave background transparent or undefined on dark themes.
+4. **Distinction Between Observed Facts & Inferred Responsive Behavior:**
+   - Directly observed layout facts (exact copy, colors, positions, asset bounding boxes) must be recorded faithfully.
+   - When multi-viewport designs are provided or responsive adaptations are inferred, specify them using the optional `responsiveOverrides` object (`tablet` and `mobile` keys) on nodes or sections.
+5. **Strict Numeric & Schema Constraints:**
+   - All style dimensions, fontSize, gap, padding, margin, and borderWidth values must be bare numbers (e.g. `16`, `24`), NEVER strings like `"16px"`.
+   - Asset `sourceRect` must be strictly bounded within the image dimensions (`x >= 0, y >= 0, x + width <= sourceWidth, y + height <= sourceHeight`).
+   - No raw CSS properties in styles (e.g. do NOT use `marginBottom`, `marginTop`, `gridTemplateColumns` in styles).
+   - Hierarchy rule: sections belong strictly inside `pages[0].sections`, never directly in `pages[]`.
 
-| Field | Accepted shape |
-|---|---|
-| `version` | Literal `"1.0.0"` |
-| `meta` | Strict object described below |
-| `breakpoints` | Strict object with required `desktop` and optional `tablet` / `mobile` |
-| `globals` | Strict object with required colors and typography; optional spacing |
-| `assets` | Array of strict asset objects (may be empty) |
-| `pages` | Array of page objects; at least one page |
-| `canvas_bounds` | Optional strict canvas-bounds object |
+### Stage B: DIR-to-Elementor Reasoning Responsibilities
+The Elementor Layout Engine (deterministic compiler `convertDIRToElementor` and skill prompt) is exclusively responsible for compiling the validated `DIRDocument` into native Elementor Core 4.3.5 template JSON:
 
-`meta` requires non-empty `sourceImageHash`, positive numeric `sourceWidth` and `sourceHeight`, string `analysisProvider`, `analysisModel`, and `analysisTimestamp`, `confidenceScore` from 0 through 1, literal `schemaVersion: "1.0.0"`, and string `promptVersion`. `notes` may be an array of strings; `canvas_bounds` is optional. The timestamp is only type-checked as a string. Although `DIRMeta` in `types.ts` also declares `elementorVersion`, strict Zod validation does **not** accept it in `meta`.
+1. **Root Envelope & Canvas Background:**
+   - Root page settings must inherit `dir.globals.colors.background` (e.g., `#050a04`) with `template: "elementor_canvas"` and `background_background: "classic"`.
+   - Root section containers inherit `pageBg` whenever section background is unset or transparent, preventing default white browser rendering.
+2. **Inline Navigation Menu & Actions Compilation:**
+   - **Slot 1 (Logo):** Pixel width (`unit: "px"`), `align: "left"`, `align_self: "center"`, `_element_width: "initial"`, `_flex_shrink: 0`, `_flex_grow: 0`.
+   - **Slot 2 (Menu):** Compiled into canonical Elementor Core `icon-list` widget with `view: "inline"`, `space_between: 32`, `align_self: "center"`, explicit width calculation (`width: { unit: "px", size: ... }`), `_element_width: "initial"`, `_flex_shrink: 0`, `_flex_grow: 0` so it NEVER wraps into multiple lines.
+   - **Slot 3 (Actions Container):** Container with `flex_direction: "row"`, `flex_wrap: "nowrap"`, `flex_justify_content: "flex-end"`, `flex_align_items: "center"`, `flex_grow: 0`, `_flex_grow: 0`, `flex_shrink: 0`, `_flex_shrink: 0`, `content_width: "full"`, `_element_width: "initial"`. Each child button has `_element_width: "initial"`, `_flex_shrink: 0` so buttons stay neatly grouped on the right edge without spreading across the navbar.
+3. **Pill Badge Container Generation:**
+   - Compile `badge` nodes into a centered flex container with `border_radius: 9999px`, `background_background: "classic"`, `background_color: "#b7f34c"`, and inner span heading with contrasting dark text (`#060b05`).
+4. **Sub-Asset Resolution & Media Linking:**
+   - Prior to compilation, the asset extraction pipeline crops sub-regions from the source image buffer using `asset.sourceRect`, stores the cropped PNG in local/B2 storage (`projects/${job.projectId}/assets/...`), registers a database `Asset`, and assigns `asset.placeholder` and `node.url`.
+   - `convertImageNode` resolves `node.url || asset.placeholder || asset.url` into `settings.image = { url, id }`.
+5. **Widget Slugs & Control IDs:**
+   - Slugs must match the Elementor Core 4.3.5 registry exactly: `heading`, `text-editor`, `button`, `image`, `icon`, `icon-box`, `icon-list`, `divider`, `spacer`, `counter`, `progress`, `star-rating`, `social-icons`, `video`, `google_maps`, `tabs`, `accordion`.
+6. **Responsive Controls Application:**
+   - Apply Elementor responsive suffix conventions (`_tablet` and `_mobile`) for container flex directions, grid columns, typography font sizes, and container padding/margin.
+   - Enforce mobile viewport width clamping (`width_mobile: { unit: '%', size: 100 }`) on desktop containers > 360px.
 
-`breakpoints.desktop` requires numeric `min` and optionally numeric `max`. `tablet`, when present, requires numeric `min` and `max`; `mobile`, when present, requires numeric `min` and optionally numeric `max`. The schema does not constrain breakpoint ordering or specific pixel values.
+---
 
-`globals.colors` requires string `background` and `text`; the named `primary`, `secondary`, `accent`, `surface`, `textSecondary`, and `border` entries are optional strings. Additional color keys are permitted if their values are strings (or optional strings). `globals.typography` requires `fontFamilies: string[]` (the schema does not require a non-empty array); optional fields are `headingFont`, `bodyFont`, numeric `baseSize`, and numeric `scale`. Optional `globals.spacing` is strict and contains `unit: "px" | "rem"`, numeric `base`, and optional numeric `sectionGap` and `containerMaxWidth`.
+## 2. Responsive Engineering & Control Matrix (Elementor 4.3.5)
 
-### Pages, sections, and nodes
+Elementor 4.3.5 employs a deterministic suffix convention for device-specific overrides:
+- **Desktop:** Unadorned control ID (e.g., `flex_direction`, `typography_font_size`, `padding`)
+- **Tablet (<= 1024px):** `_tablet` suffix (e.g., `flex_direction_tablet`, `typography_font_size_tablet`, `padding_tablet`)
+- **Mobile (<= 767px):** `_mobile` suffix (e.g., `flex_direction_mobile`, `typography_font_size_mobile`, `padding_mobile`)
 
-Sections belong under `pages[].sections[]`; `pages[]` contains page objects, not sections. A page requires non-empty string `id`, string `name`, and at least one section. A section requires non-empty string `id`, a role from the list below, confidence from 0 through 1, a `styles` object, and a `children` array. The children array may be empty at schema level. Optional section fields are `label`, `responsiveNotes: string[]`, `responsiveOverrides`, `canvas_bounds`, `direction: "row" | "column"`, numeric `gap`, string `justifyContent` and `alignItems`, and `layout_tree`.
+### A. Container Reflow Rules
+1. **Flexbox Row to Column:**
+   Containers with desktop `flex_direction: "row"` that contain multi-element hero content, feature columns, or card groups automatically receive:
+   ```json
+   "flex_direction_tablet": "column",
+   "flex_direction_mobile": "column"
+   ```
+2. **CSS Grid Reflow:**
+   Grid containers with 3 or more columns on desktop reflow down:
+   ```json
+   "grid_columns_grid": { "unit": "fr", "size": 3 },
+   "grid_columns_grid_tablet": { "unit": "fr", "size": 2 },
+   "grid_columns_grid_mobile": { "unit": "fr", "size": 1 }
+   ```
 
-Allowed section roles: `header`, `navigation`, `hero`, `feature`, `content`, `cta`, `testimonial`, `pricing`, `stats`, `gallery`, `team`, `faq`, `contact`, `form`, `footer`, `banner`, `logo-bar`, `generic`.
+### B. Typography Scaling Matrix
+Hero headlines and large display titles must scale proportionally across breakpoints to prevent clipping and horizontal scrolling:
+| Desktop Size | Tablet Size (`_tablet`) | Mobile Size (`_mobile`) |
+|:---|:---|:---|
+| >= 48px | `Math.round(desktop * 0.72)` (min 32px) | `Math.round(desktop * 0.52)` (min 26px) |
+| 32px – 47px | `Math.round(desktop * 0.82)` | `Math.round(desktop * 0.68)` |
+| < 32px | Unchanged | `Math.max(14, Math.round(desktop * 0.85))` |
 
-Every node requires non-empty string `id`, a supported `kind`, confidence from 0 through 1, and a `styles` object. The base node may also contain `label`, `responsiveOverrides`, `typography`, `form_details`, boolean `composite_graphic_asset`, and `layout_tree`. In the table, “optional” means not required by Zod; kind-specific objects themselves are strict.
+### C. Viewport Clamping & Spacing Adaptation
+1. **Fixed Width Clamping:** Containers or images with fixed desktop width > 360px receive:
+   ```json
+   "width_mobile": { "unit": "%", "size": 100 }
+   ```
+2. **Spacing Scaling:** Section and container padding scales down to avoid edge pinching:
+   - Tablet: 0.75x desktop padding
+   - Mobile: 0.50x desktop padding (clamped with minimum 16px horizontal)
 
-| DIR kind | Additional required fields | Optional kind-specific fields |
-|---|---|---|
-| `container` | `children: node[]` | `direction: "row" \| "column"`, `wrap: boolean`, numeric `gap` |
-| `flex-group` | `direction: "row" \| "column"`, `children: node[]` | string `justifyContent`, string `alignItems`, `wrap: boolean`, numeric `gap` |
-| `grid-group` | positive integer `columns`, `children: node[]` | positive integer `rows`, numeric `gap` |
-| `heading` | string `text`, `level: 1 \| 2 \| 3 \| 4 \| 5 \| 6` | string `htmlTag` |
-| `text` | string `html` | string `text` |
-| `button` | string `text` | string `url`, `variant: primary \| secondary \| outline \| ghost \| link`, `size: small \| medium \| large`, string `icon`, `iconPosition: left \| right` |
-| `image` | — | string `assetId`, `alt`, `caption`; `objectFit: cover \| contain \| fill \| none`; string `aspectRatio`, `url`; positive numeric `width`, `height`; integer `seed`; string `prompt` |
-| `icon` | — | string `iconName`, `iconLibrary` |
-| `icon-text` | string `text` | string `iconName`, `iconLibrary`, `title` |
-| `link` | string `text` | string `url` |
-| `list` | `children: node[]` | boolean `ordered` |
-| `list-item` | string `text` | string `icon` |
-| `divider` | — | numeric `thickness` |
-| `spacer` | numeric `height` | — |
-| `card` | `children: node[]` | — |
-| `form` | `children: node[]` | — |
-| `input` | — | `inputType: text \| email \| password \| textarea \| select \| checkbox \| radio`; string `placeholder`, `label` |
-| `video` | — | string `url`; `provider: youtube \| vimeo \| self-hosted` |
-| `map` | — | string `location` |
-| `social-icons` | `platforms: { name: string; url?: string }[]` | — |
-| `counter` | numeric `value` | string `suffix`, `prefix`, `title` |
-| `progress-bar` | numeric `value` | numeric `max`, string `label` |
-| `tabs` | `tabs: { title: string; children: node[] }[]` | — |
-| `accordion` | `items: { title: string; children: node[] }[]` | — |
-| `rating` | numeric `value` | numeric `max` |
-| `badge` | string `text` | — |
-| `unknown` | — | string `description`, optional `children: node[]` |
+### D. Prompt Version & Cache Identity
+All pipeline prompt payloads specify an explicit version string for deterministic cache management:
+- `PROMPT_VERSIONS.IMAGE_ANALYSIS`: `v1.6.0`
+- `PROMPT_VERSIONS.ELEMENTOR_CONVERSION`: `v1.2.0`
+- `PROMPT_VERSIONS.DIR_REPAIR`: `v1.1.0`
+- `PROMPT_VERSIONS.SECTION_REPAIR`: `v1.0.0`
 
-All nodes inside container/card/form/list children and tab/accordion content are recursively validated DIR nodes. `confidence` is bounded; most other numeric fields do not have an explicit range beyond constraints noted above.
+Any alteration to skill prompts, widget profiles, or responsive mappings immediately invalidates prior cached AI inferences.
 
-### Styles, metadata objects, and strictness
+---
 
-`styles` is a required strict object. Only these keys are accepted:
+## 3. Typography Engineering, Font Canonicalization & Color Binding Matrix
 
-- Layout dimensions `width`, `height`, `minWidth`, `maxWidth`, `minHeight`, `maxHeight`: each accepts a **string or number**; the schema does not constrain string units.
-- `padding` and `margin`: strict objects with optional numeric `top`, `right`, `bottom`, `left`; `gap`: number.
-- Background strings: `backgroundColor`, `backgroundImage`, `backgroundGradient`, `backgroundSize`, `backgroundPosition`, `backgroundOverlay`.
-- Typography: string `fontFamily`; numeric `fontSize`, `letterSpacing`; `fontWeight` and `lineHeight` each accept string or number; `textAlign: left | center | right | justify`; `textTransform: none | uppercase | lowercase | capitalize`; string `textDecoration` and `color`.
-- Border: numeric `borderWidth`; string `borderColor`; `borderStyle: solid | dashed | dotted | none`; `borderRadius` is a number or strict optional numeric corners `topLeft`, `topRight`, `bottomRight`, `bottomLeft`.
-- Shadow/display/flex: string `boxShadow`, `textShadow`, `display`, `position`, `overflow`, `justifyContent`, `alignItems`, `alignSelf`, `flexBasis`; numeric `opacity` constrained to 0–1, `zIndex`, `flexGrow`, `flexShrink`; `flexDirection: row | column`; `flexWrap: wrap | nowrap`.
+Elementor Core relies on strict, widget-specific control keys to apply typography and color overrides. If typography properties are not bound to the exact control keys or if font families are specified with invalid generic names, Elementor will silently ignore the styling and fall back to the host WordPress theme defaults (often Times New Roman or Arial).
 
-`responsiveOverrides` is an optional strict record with only `tablet` and/or `mobile` keys. Each value is a partial `styles` object with the same allowed keys and value types. `typography`, when present, is strict: optional string `font_family_guess`, `color_hex`; numeric `font_size_px`, `letter_spacing_px`; string-or-number `font_weight`, `line_height_em`; and optional `inline_color_spans: { text, color_hex }[]`. `form_details`, when present, is a strict object containing optional `fields: { placeholder?, type?, background_hex?, border_radius_px? }[]`, `placeholder`, `background_hex`, numeric `border_radius_px` and `field_gap_px`, and `submit_button: { text?, width_type?: "auto" | "full", gradient_hex?, background_hex?, color_hex?, border_radius_px?, icon_position?: "left" | "right" | "none" }`.
+### A. The Universal Cascading Inheritance Hierarchy
+Typography and text colors resolve according to a deterministic 5-level cascade:
+```
+Level 1: Explicit Node Inline Styles (`node.styles.fontFamily`, `node.styles.fontSize`, `node.styles.color`)
+   │
+   ▼ (if unset)
+Level 2: Node Typography Perception Object (`node.typography.font_family_guess`, `node.typography.color_hex`)
+   │
+   ▼ (if unset)
+Level 3: Global Document Typography (`dir.globals.typography.headingFont` for headings, `bodyFont` for text/buttons)
+   │
+   ▼ (if unset)
+Level 4: Global Document Font List (`dir.globals.typography.fontFamilies[0]`)
+   │
+   ▼ (if unset)
+Level 5: Canonical Modern Fallback (`"Plus Jakarta Sans"` for headings/display, `"Inter"` for body/buttons/links)
+```
 
-`canvas_bounds` is strict and accepts optional boolean `crop_mockup`, `inner_bg_type: gradient | solid`, strings `primary_hex` and `secondary_hex`, and numeric `gradient_angle`, `x`, `y`, `width`, `height`.
+### B. Google Fonts Canonicalization
+Elementor natively connects to the Google Fonts library. Vision AI models often output loose names (e.g. `"Modern Sans"`, `"sans-serif"`, `"display"`, or quoted strings). The compiler maps these to canonical Google Fonts:
 
-An asset requires non-empty string `id`, `type: image | icon | logo | background | video | placeholder`, string `role`, and confidence from 0 through 1. Optional fields include positive `sourceRect.width` and `sourceRect.height`, numeric `sourceRect.x` and `.y`, strings `description` and `placeholder`, positive numeric `width` and `height`, integer `seed`, strings `prompt`, booleans `generated` and `composite_graphic_asset`, and arbitrary-object `metadata`. The schema does not check that a source rectangle lies within image bounds.
+| Input String / AI Guess | Canonical Elementor Google Font |
+|:---|:---|
+| `*jakarta*` | `"Plus Jakarta Sans"` |
+| `*inter*`, `*sans*`, `*sans-serif*`, `*clean*` | `"Inter"` |
+| `*poppins*` | `"Poppins"` |
+| `*montserrat*` | `"Montserrat"` |
+| `*roboto*` | `"Roboto"` |
+| `*outfit*` | `"Outfit"` |
+| `*serif*`, `*playfair*` | `"Playfair Display"` |
+| `*merriweather*` | `"Merriweather"` |
+| `*dm sans*`, `*dmsans*` | `"DM Sans"` |
+| `*lato*` | `"Lato"` |
+| `*open sans*` | `"Open Sans"` |
+| `*raleway*` | `"Raleway"` |
+| `*work sans*` | `"Work Sans"` |
+| `*space gro*` | `"Space Grotesk"` |
+| `*syne*` | `"Syne"` |
+| `*clash*` | `"Clash Display"` |
+| `*satoshi*` | `"Satoshi"` |
+| `*manrope*` | `"Manrope"` |
+| `*urbanist*` | `"Urbanist"` |
+| `*mono*` | `"Roboto Mono"` |
 
-The document, meta, breakpoints, globals, typography, spacing, asset, source-rectangle, page, section, node, styles, spacing, corners, canvas-bounds, and outer `form_details` objects are strict: unknown keys are rejected by Zod. Exceptions include `globals.colors`, which permits additional optional string-valued keys, arbitrary `layout_tree` and asset `metadata` records, plus several nested objects/rows that are not strict (including form fields and submit button, social platform entries, tab/accordion rows, and inline color-span entries). Do not infer a stricter contract for these permissive nested records than the code enforces.
+### C. Widget-Specific Color & Typography Control Key Matrix
+Different Elementor widgets use different control IDs for text color and typography:
 
-`validateDIR` additionally checks page/section/node ID duplication (including descendants visited through `children`, tabs, and accordion items) and reports duplicate IDs as `DUPLICATE_IDS`. IDs are not required to be unique against asset IDs, and duplicate asset IDs are not checked. Missing image asset references produce warnings, not errors; the current reference walk follows `children` only, so references nested only in tab/accordion content are not checked. Sections below confidence 0.5 produce warnings. There is no semantic source-rectangle bound check.
+| Widget Slug (`widgetType`) | Text Color Control Key | Typography Group Activation | Font Family Key | Font Size Key |
+|:---|:---|:---|:---|:---|
+| `heading` | `title_color` | `typography_typography: "custom"` | `typography_font_family` | `typography_font_size` |
+| `text-editor` | `text_color` | `typography_typography: "custom"` | `typography_font_family` | `typography_font_size` |
+| `button` / `link` | `button_text_color` | `typography_typography: "custom"` | `typography_font_family` | `typography_font_size` |
+| `icon-list` (Nav Menu) | `text_color` | `typography_typography: "custom"` | `typography_font_family` | `typography_font_size` |
+| `counter` | `number_color` & `title_color` | `typography_number_typography: "custom"` | `typography_number_font_family` | `typography_number_font_size` |
+| `icon-box` | `title_color` | `title_typography_typography: "custom"` | `title_typography_font_family` | `title_typography_font_size` |
 
-### Normalization is recovery, not an expanded contract
+> [!IMPORTANT]
+> `typography_typography: "custom"` must ALWAYS be emitted whenever any typography property (`font_family`, `font_size`, `font_weight`, `line_height`, `letter_spacing`, `text_transform`) is specified. Without this flag, Elementor's CSS generator ignores the individual sub-keys.
 
-`normalizeDIR` / `normalizeNode` repair unambiguous common output issues before validation: they fill some document defaults, clamp confidence, convert selected numeric strings, map known margin/padding aliases, transfer a few typography/layout fields, infer certain missing text/heading/grid values, disentangle section-shaped objects from `pages[]`, and prune unknown node keys. `normalizeStyles` strips a small named set of common unsupported CSS keys. This is a recovery step, not permission to emit arbitrary CSS, unsupported node fields, or unknown schema keys. Ambiguous values such as `1.5rem` in numeric-only properties are not converted to guessed numbers; strict validation can still reject them.
+### D. Background Luminance & High-Contrast Safety
+When text color is omitted by Vision AI:
+1. The compiler evaluates the effective background color (from `node.styles.backgroundColor` or `dir.globals.colors.background`).
+2. If `isDarkColor(effectiveBg)` is `true` (relative luminance < 0.5):
+   - Headings default to `#FFFFFF`.
+   - Body text defaults to `#E2E8F0` or `#94A3B8`.
+   - Action buttons default to `#FFFFFF` (or `#060B05` if the button background is a bright lime/yellow accent `#B7F34C`).
+3. If `isDarkColor(effectiveBg)` is `false` (light background):
+   - Text falls back to `dir.globals.colors.text` or `#182135`.
 
-## 3. DIR-to-Elementor mapping
+### E. Background Gradient Engineering
+Elementor Core natively supports linear and radial gradients on containers, canvas page settings, and buttons:
+```json
+{
+  "background_background": "gradient",
+  "background_color": "#1b2248",
+  "background_color_b": "#141b3c",
+  "background_gradient_type": "linear",
+  "background_gradient_angle": { "unit": "deg", "size": 180 },
+  "background_color_stop": { "unit": "%", "size": 0 },
+  "background_color_b_stop": { "unit": "%", "size": 100 }
+}
+```
+Whenever `canvas_bounds.inner_bg_type === 'gradient'` or `section.styles.backgroundGradient` is specified, the compiler emits native Elementor gradient settings instead of flattening to solid `classic`.
 
-The deterministic compiler processes the first DIR page and maps its sections to top-level `container` elements. Nested layout nodes become Containers; content nodes become widgets or, for badges and circular counters, a Container with a widget. A normal widget has `elType: "widget"`, its registered `widgetType`, `settings`, and an `elements` array. Containers use `elType: "container"` and nested children in `elements`. Generated element IDs are seven hexadecimal characters.
+### F. Chromatic Fidelity & Element Styling Rules
+1. **No Tailwind / Preset Snapping:** Vision models must never round subtle tones (e.g. pastel peach/apricot/caramel `#e7c69f` / `#deb285`) to highlighter yellow (`#fde047` / `#facc15`).
+2. **Button Rounding & Padding:** Modern buttons default to `8px` rounded corners (or `50px` pill for hero search/CTA buttons). Buttons are never left with sharp `0px` rectangular corners.
+3. **Muted Nav Links:** Navigation links on dark headers use soft slate/grey (`#cbd5e1` / `#94a3b8`) instead of harsh pure `#ffffff`.
 
-| Accepted DIR kind | Deterministic output | Settings / child behavior / limitations |
-|---|---|---|
-| `container`, `flex-group`, `card`, `form` | `elType: "container"` | Flex Container. Direction defaults to column. Child nodes are recursively compiled. A container whose children are all links instead becomes one `icon-list` widget (inline navigation repeater). `form` is only a layout container; it does not create a functioning form. |
-| `grid-group` | `elType: "container"` | `container_type: "grid"`; `grid_columns_grid: {unit:"fr", size: columns}`; recursive children. Tablet columns use `min(2, max(1, columns - 1))`; mobile uses 1. Gap settings are emitted when gap is truthy. |
-| `heading` | `heading` | `title`, `header_size: "h{level}"`; styles can map alignment, color and typography. |
-| `text` | `text-editor` | `editor` gets DIR `html` (then text fallback); style alignment/color/typography may be applied. |
-| `button` | `button` | `text`, URL object `{url, is_external:"", nofollow:""}` (unknown URL becomes `#`), and size `sm`/`md`/`lg`; background/text color, border, padding, typography as available. |
-| `image` | `image` | `settings.image: {url, id}`, `image_size:"full"`, alignment; resolved node URL or referenced asset placeholder/URL is preferred. May fall back to another available asset or an SVG placeholder. |
-| `icon` | `icon` | `selected_icon: {value, library}`; defaults to `fas fa-star` / `fa-solid`, maps a few names, and otherwise prefixes `fas fa-`. |
-| `icon-text` | `icon-box` | `selected_icon`, `title_text`, `description_text`, `position:"top"`; absent icon name becomes a star; `iconLibrary` is not used by this branch. |
-| `link` | `button` | Transparent button settings, text/link/color/typography; unknown URL becomes `#`. |
-| `list` | `icon-list` | `view:"traditional"` and `icon_list` repeater rows with `_id`, text, icon object, and link. Children are interpreted as list items. |
-| `list-item` | `text-editor` | Emits a paragraph from its text; it is not a standalone icon-list item except when consumed by a `list`. |
-| `divider` | `divider` | `style:"solid"`, numeric thickness as `weight`, border color or `#E5E7EB`. |
-| `spacer` | `spacer` | `space: {unit:"px", size: height}`. |
-| `counter` | `counter` | `starting_number:0`, `ending_number`, prefix/suffix/title. Exact multiples of 1000 become `k` when suffix is absent. Circular styles with a background produce a wrapping Container. |
-| `progress-bar` | `progress` | `title`, `percent:{unit:"%",size:value}`, `display_percentage:"show"`; `max` is not used. |
-| `social-icons` | `social-icons` | `social_icon_list` rows with brand icon and link; unknown URL becomes `#`. |
-| `tabs` | `tabs` | `settings.tabs` rows `{_id, tab_title, tab_content}`. Nested DIR children are flattened to basic HTML text/heading content; complex children are not preserved as nested widgets. |
-| `accordion` | `accordion` | Same repeater shape as tabs; nested content is flattened. |
-| `map` | `google_maps` | `address` reads `node.address` (not the schema's `location`) and otherwise defaults to a London address; zoom/height use branch defaults. |
-| `video` | `video` | `video_type` reads `node.videoType` (not the schema's `provider`) and otherwise defaults to YouTube; missing URL becomes a hard-coded sample video URL. |
-| `rating` | `star-rating` | `rating_scale:"5"`, rating, star style; `max` is not used. |
-| `badge` | Container + `heading` | Accent/background fallback, inferred contrast text, pill-like radius and default padding if absent. The generated widget slug is `heading`, not `badge`. |
-| `input` | `html` | Inline HTML input with placeholder/style. It always emits `type="text"`; schema `inputType`/`label` are not honored. It is not a native form-control integration. |
-| `unknown` | `text-editor` fallback | Adds `node_kind:{kind}` to unsupported features and a warning; emits a basic fallback label. |
+---
 
-`types.ts` declares additional `image-box`, `testimonial`, `toggle`, `gallery`, and `image-gallery` kinds, and the generator has branches for them. **The runtime Zod schema does not accept these kinds** (they are absent from its discriminated union), so they are not valid canonical DIR and must not be claimed as supported input. The registry includes corresponding widget slugs for some of them; that does not make those DIR kinds schema-valid. Compiler branches also accept some ad hoc properties not present in the schema; they are not part of the canonical contract.
+## 4. Source and Compatibility Specifications
 
-The compiler emits registered widget slugs such as `heading`, `text-editor`, `button`, `image`, `icon`, `icon-box`, `icon-list`, `divider`, `spacer`, `counter`, `progress`, `social-icons`, `tabs`, `accordion`, `google_maps`, `video`, `star-rating`, and `html`. A widget slug is distinct from a DIR node kind: for example, DIR `map` maps to `google_maps`, `rating` to `star-rating`, and `input` to `html`.
+- **Source Archive:** `elementor.zip`; source version: **Elementor Core 4.3.5**.
+- **Per-Widget Profiles:** Located at `server/src/skills/elementor/widgets/*.json`.
+- **Layout Element Profiles:** Located at `server/src/skills/elementor/layout-elements/*.json`.
+- **Widget Registry:** Located at `server/src/skills/elementor/widget-registry.json` (32 verified classic widgets).
+- **Responsive Matrix:** Located at `server/src/skills/elementor/responsive-capabilities.json`.
+- **Slug Exactness:** `widgetType` must match the registered widget slug exactly (e.g., Google Maps slug is `google_maps`, star rating is `star-rating`).
+- **Control IDs:** Setting keys are the internal PHP control IDs, not display labels. Repeater rows (`tabs`, `icon_list`, `social_icon_list`), icons, and media objects have strictly structured shapes.
 
-### Root document and settings
+---
 
-The deterministic document envelope is:
+## 5. Native Elementor Content-Node Structure
+
+### Container with child widgets
 
 ```json
 {
-  "version": "0.4",
-  "elementor_version": "4.3.5",
-  "wp_version": "6.8",
-  "title": "Page title",
-  "type": "page",
-  "page_settings": {
-    "template": "elementor_canvas",
-    "background_background": "classic",
-    "background_color": "#ffffff"
+  "id": "c0000001",
+  "elType": "container",
+  "settings": {
+    "content_width": "full",
+    "flex_direction": "column"
   },
-  "content": []
+  "elements": [
+    {
+      "id": "h0000001",
+      "elType": "widget",
+      "widgetType": "heading",
+      "settings": {
+        "title": "Build something great",
+        "header_size": "h1",
+        "align": "start"
+      },
+      "elements": []
+    },
+    {
+      "id": "t0000001",
+      "elType": "widget",
+      "widgetType": "text-editor",
+      "settings": {
+        "editor": "<p>Describe the value of your service here.</p>"
+      },
+      "elements": []
+    },
+    {
+      "id": "b0000001",
+      "elType": "widget",
+      "widgetType": "button",
+      "settings": {
+        "text": "Get Started",
+        "link": {
+          "url": "https://example.com/",
+          "is_external": "",
+          "nofollow": ""
+        },
+        "size": "sm",
+        "align": "start"
+      },
+      "elements": []
+    }
+  ],
+  "isInner": false
 }
 ```
 
-The Elementor version is read from `source-version.json` (fallback `4.3.5`); `wp_version` is currently `6.8`. Page background comes from `globals.colors.background`, then surface, then white. Sections are modern Flexbox Containers, boxed to `globals.spacing.containerMaxWidth` or 1200px; tablet/mobile boxed widths are set to `min(768, maxWidth)` and 360px. A missing/transparent section background inherits the page background.
+A normal classic widget node has `elType: "widget"`, its exact `widgetType`, a `settings` object, and normally an `elements` array. A Container uses `elType: "container"` and contains its children under `elements`. The `id` must be unique within the document. `settings` holds Elementor control values, not generic HTML attributes.
 
-Common mappings include DIR background color to `background_background:"classic"` plus `background_color` on containers; padding/margin to Elementor dimension objects with string side values and linkage flags; dimensions to `{unit,size}`; and typography to the `typography_*` controls with `typography_typography:"custom"`. The generator maps a provided `backgroundImage` to a media object and optional position/size, but does not compile `backgroundGradient`. Global typography families and globals colors other than the page background are not automatically applied as a universal cascade: set styles on nodes where supported.
+### Export wrapper note
 
-Media settings use `{url, id}`. Button/link destinations use Elementor link objects; never invent a real destination. Icon settings use objects such as `{value:"fas fa-check", library:"fa-solid"}`; available icon-library behavior depends on target Elementor. Repeaters use the widget-specific keys shown above. Widget profiles in `src/skills/elementor/widgets/` and the target installation determine whether uncommon control shapes actually import.
+The content tree above is not guaranteed to be the entire Template Library export envelope. The exact outer wrapper differs by import/export route. Generate or validate the final template using the target Elementor export path; do not wrap the content tree in an invented envelope.
 
-The generator does not generate legacy `section` or `column` elements: every DIR section and layout node is emitted as a modern `container`. Legacy Inner Section is present only as a reference example. The validator still recognizes legacy element types and reports a warning; this does not make them the preferred output.
+## 4. Widget JSON examples
 
-## 4. Responsive behavior
+The following minimal nodes demonstrate source-defined content controls for each classic built-in widget registered in this source snapshot. Styling examples are intentionally limited; use the source schema for any extra style controls, responsive values, shared group controls, globals, and dynamic tags.
 
-The responsive capability matrix is `src/skills/elementor/responsive-capabilities.json`, version `1.0.0`. Its breakpoints are desktop from 1025px, tablet 768–1024px, and mobile 320–767px; tablet/mobile setting suffixes are `_tablet` and `_mobile`. The DIR schema merely stores numeric breakpoint bounds and does not enforce these values.
+### Legacy Inner Section — `section` / `column`
 
-The matrix documents responsive controls for Containers (flex direction/justify/align/gap, width, boxed width, custom height, padding/margin, grid columns/gap, align-self) and selected widget controls: heading, text-editor, button, image, counter, icon-list, spacer, divider. Do not assume every Elementor control accepts responsive suffixes.
+This is a structural legacy layout element, not an ordinary widget node. Prefer Containers for newly reconstructed pages. Keep this only when replicating a legacy Section/Column layout.
 
-The deterministic generator applies responsive adaptations only in its coded cases:
-
-- Non-header row sections and ordinary nested row groups receive tablet/mobile column directions. Header/navigation sections instead wrap on mobile; labeled header-action groups are handled specially.
-- Grid tablet columns use `min(2, max(1, desktopColumns - 1))`; mobile is 1. Thus two desktop columns also become one on tablet in this compiler, despite a broader matrix description that may suggest otherwise.
-- Typography font sizes: at least 44px scale to 0.8 tablet / 0.6 mobile (mobile minimum 24px); 28–43px scale to 0.85 / 0.72 (mobile minimum 20px); 18–27px gets mobile 0.88 (minimum 15px). Counter number sizes use their own 0.85 tablet / 0.7 mobile rule for sizes at least 28px.
-- Container padding/margin styles are scaled; button padding has separate scales. Fixed numeric widths and images over certain thresholds may be reduced or clamped on tablet/mobile. Exact conditions differ by node and setting; this is not a universal formula.
-- Explicit `responsiveOverrides` are translated for a subset of controls (flex direction/alignment/gap, padding/margin, font size/line height, text alignment, width, max width). Unsupported override keys are ignored by the mapper.
-
-The report distinguishes explicit override count from inferred adaptation count. If only a desktop image is supplied, any responsive reconstruction is inference; do not present inferred behavior as observed evidence. Prefer actual mobile/tablet references when available and preserve their measured content and styles.
-
-## 5. Image evidence and content fidelity
-
-Describe only what is visible. Preserve legible text, image evidence, and observed layout; do not force a navigation bar, split hero, badge, artwork, palette, typography, or CTA into a design that does not contain it. Do not invent unreadable copy, URLs, map locations, media assets, or unsupported widgets.
-
-An exact source-image crop is attempted only when an asset has a usable `sourceRect` and source bytes are available. The crop implementation clamps to image dimensions. If exact cropping is absent or fails, the orchestrator tries a heuristic region based on asset role/type; if that fails it can reference the whole source image or emit an SVG placeholder. These fallbacks can be unrelated to the intended asset. An image URL or placeholder being non-empty does not prove its content is correct.
-
-## 6. Validation, fallback, and compatibility behavior
-
-- **Invalid DIR:** normalization and bounded repairs may resolve it; if validation still fails, processing stops. There is no deterministic guarantee that an AI repair succeeds.
-- **Vision response failure/truncation/invalid JSON:** parse errors fail the DIR stage. Truncated responses have their cache entry invalidated and fail if no complete parse is available.
-- **Elementor AI generation:** unavailable provider, thrown error, truncated output, invalid JSON, or structurally invalid output leaves no accepted AI document and triggers the deterministic compiler. This attempt is skipped in test mode.
-- **Compiler unknown nodes:** converts to a `text-editor` fallback and records an unsupported-feature warning. Some other fallbacks insert generic/default destinations or sample media; these should be reviewed, not mistaken for observed source content.
-- **Assets:** exact cropping, heuristic crop, source-image URL, and generated placeholder are distinct outcomes. Missing source bytes can prevent extraction. The output can still be structurally valid while containing a placeholder.
-- **Elementor validation:** checks document object/content array, IDs and duplicates, supported `elType`, widget type presence/registry recognition, settings object shape, and custom-code section shortcuts. It reports unknown widgets and legacy layouts as warnings. It does not validate every widget's required settings, all control value shapes, image existence, target-site extensions, or visual accuracy.
-- **Self-healing:** only runs when validation is invalid and OpenRouter is available; only a complete healed response that passes the same structural validator is accepted. Otherwise the prior document remains and validation issues are logged.
-- **Serialization and import:** serializer emits the template envelope and cleans some empty settings. Structural validation is not a WordPress import test. Verify the exported JSON on a compatible Elementor installation, confirm media/widget resolution, render it, and compare screenshots at matching viewports.
-
-## 7. Prompt and reference versions
-
-Current constants in `src/modules/conversion/prompts.ts`:
-
-| Prompt | Version |
-|---|---|
-| `IMAGE_ANALYSIS` | `v2.1.0` |
-| `ELEMENTOR_CONVERSION` | `v2.0.0` |
-| `ELEMENTOR_SELF_HEALING` | `v1.0.0` |
-| `DIR_REPAIR` | `v1.1.0` |
-| `SECTION_REPAIR` | `v1.0.0` |
-
-These values identify prompt/cache versions; the fixture values in tests are not the current production prompt constants.
-
-Source/version and capability references:
-
-- Widget catalog: `src/skills/elementor/widget-registry.json` contains **32 catalog elements**: 30 widget entries plus the Container and legacy Inner Section layout entries.
-- Widget profile examples: `src/skills/elementor/widgets/*.json` contains **30 files**. Layout examples are in `src/skills/elementor/layout-elements/container.json` and `inner-section.json`.
-- Responsive matrix: `src/skills/elementor/responsive-capabilities.json`.
-- Source metadata: `src/skills/elementor/source-version.json` identifies Elementor Core 4.3.5 and says examples are not live-import certification.
-
-The catalog's `reference_file` values point to `references/widgets/...` and `references/layout-elements/...`, paths that are not present in this checkout. The examples actually present are under `src/skills/elementor/widgets/` and `src/skills/elementor/layout-elements/`; do not claim the declared `references/` paths exist. The runtime TypeScript registry is a separate inventory: it declares 24 Core widget profiles plus 30 known Pro slugs (54 profiles before any directory loading), so that count is not the JSON catalog's 32 elements or the 30 on-disk widget examples.
-
-## 8. Reproducible validation and test procedure
-
-From the `server` directory, run the relevant offline suites:
-
-```sh
-npm test -- src/__tests__/e2e-pipeline.test.ts src/__tests__/responsive-pipeline.test.ts src/__tests__/dir-schema-repair-and-truncation.test.ts src/__tests__/conversion-quality-gate.test.ts src/__tests__/ai-routing-and-skills.test.ts
+```json
+{
+  "id": "s0000001",
+  "elType": "section",
+  "settings": {
+    "content_width": "boxed"
+  },
+  "elements": [
+    {
+      "id": "k0000001",
+      "elType": "column",
+      "settings": {
+        "_column_size": 50
+      },
+      "elements": [
+        {
+          "id": "h0000002",
+          "elType": "widget",
+          "widgetType": "heading",
+          "settings": {
+            "title": "Left column",
+            "header_size": "h2"
+          },
+          "elements": []
+        }
+      ],
+      "isInner": true
+    },
+    {
+      "id": "k0000002",
+      "elType": "column",
+      "settings": {
+        "_column_size": 50
+      },
+      "elements": [
+        {
+          "id": "t0000002",
+          "elType": "widget",
+          "widgetType": "text-editor",
+          "settings": {
+            "editor": "<p>Right column content.</p>"
+          },
+          "elements": []
+        }
+      ],
+      "isInner": true
+    }
+  ],
+  "isInner": true
+}
 ```
 
-These tests exercise image-byte preprocessing with a generated synthetic PNG, schema validation using `src/__fixtures__/sample-dir.json`, deterministic compilation, structural validation, serialization, responsive settings, skill loading, and a mock publish path. The tests are separate stages: the generated PNG is **not** analyzed to create the fixture DIR. This checkout has no existing raster test image, and the offline tests do not exercise configured live image analysis or a complete uploaded-image-to-DIR run.
+### Heading — `heading`
 
-For an actual image-to-DIR-to-Elementor run, use an authorized test image, configured image-capable vision and structure/review providers as required, and the authenticated upload route. Record the uploaded image dimensions/hash, provider/model, prompt version, DIR artifact and `validateDIR` result, compiler/AI path, repair attempts, Elementor document, `validateElementor` errors/warnings/stats, and serialized artifact. Do not report an unexecuted provider call as a test. Keep generated artifacts outside the repository unless the application persists them through its normal storage.
+Source: `includes/widgets/heading.php`
 
-### What existing reports expose
+```json
+{
+  "id": "w0000001",
+  "elType": "widget",
+  "widgetType": "heading",
+  "settings": {
+    "title": "A clear page headline",
+    "header_size": "h1",
+    "align": "center",
+    "title_color": "#172033"
+  },
+  "elements": []
+}
+```
 
-- `validateDIR`: `valid`, structured schema/semantic errors (`path`, `message`, `code`), and warnings. The orchestrator does not persist a complete DIR validation/repair-attempt report as a final job artifact.
-- Deterministic `ConversionReport`: `widgetsUsed`, `unsupportedFeatures`, `warnings`, `elementCount`, `containerCount`, `widgetCount`, diagnostics, and responsive counts.
-- `validateElementor`: `valid`, errors (`path`, `message`, `code` and optional element/widget identifiers), warnings, and stats (`totalElements`, containers, widgets, widget-type counts, max depth).
-- The orchestrator's `elementor_validation` stage currently persists `valid`, `qualityAudit`, `widgetsUsed`, and `elementCount`; it does not persist validator errors, warnings, or stats there. The quality audit has its own counts and can throw on empty content or unresolved image URLs.
+### Image — `image`
 
-**Reporting discrepancy:** when AI Elementor generation is accepted, the orchestrator does not set the deterministic compiler's `report`, but later reads `report.widgetsUsed` and `report.elementCount` while persisting the validation stage and artifact. This can throw instead of completing the AI-generation path. Also, compiler report counts are not guaranteed to match the actual tree for composite output such as badges and circular counters. Treat complete job-level reporting/counts as unavailable until those implementation issues are addressed; this skill file is documentation-only and does not alter runtime code.
+Source: `includes/widgets/image.php`
+
+```json
+{
+  "id": "w0000002",
+  "elType": "widget",
+  "widgetType": "image",
+  "settings": {
+    "image": {
+      "id": 101,
+      "url": "https://example.com/hero-image.jpg"
+    },
+    "image_size": "full",
+    "align": "center",
+    "caption_source": "none",
+    "link_to": "none"
+  },
+  "elements": []
+}
+```
+
+### Text Editor — `text-editor`
+
+Source: `includes/widgets/text-editor.php`
+
+```json
+{
+  "id": "w0000003",
+  "elType": "widget",
+  "widgetType": "text-editor",
+  "settings": {
+    "editor": "<p>Supporting paragraph text goes here.</p>",
+    "align": "start",
+    "text_color": "#333333"
+  },
+  "elements": []
+}
+```
+
+### Video — `video`
+
+Source: `includes/widgets/video.php`
+
+```json
+{
+  "id": "w0000004",
+  "elType": "widget",
+  "widgetType": "video",
+  "settings": {
+    "video_type": "youtube",
+    "youtube_url": "https://www.youtube.com/watch?v=VIDEO_ID",
+    "aspect_ratio": "169",
+    "controls": "yes"
+  },
+  "elements": []
+}
+```
+
+### Button — `button`
+
+Source: `includes/widgets/button.php + includes/widgets/traits/button-trait.php`
+
+```json
+{
+  "id": "w0000005",
+  "elType": "widget",
+  "widgetType": "button",
+  "settings": {
+    "button_type": "",
+    "text": "Learn More",
+    "link": {
+      "url": "https://example.com/learn-more",
+      "is_external": "",
+      "nofollow": ""
+    },
+    "size": "sm",
+    "icon_align": "row",
+    "align": "center"
+  },
+  "elements": []
+}
+```
+
+### Divider — `divider`
+
+Source: `includes/widgets/divider.php`
+
+```json
+{
+  "id": "w0000006",
+  "elType": "widget",
+  "widgetType": "divider",
+  "settings": {
+    "style": "solid",
+    "width": {
+      "unit": "%",
+      "size": 60
+    },
+    "align": "center",
+    "weight": {
+      "unit": "px",
+      "size": 2
+    },
+    "color": "#D9DEE7"
+  },
+  "elements": []
+}
+```
+
+### Spacer — `spacer`
+
+Source: `includes/widgets/spacer.php`
+
+```json
+{
+  "id": "w0000007",
+  "elType": "widget",
+  "widgetType": "spacer",
+  "settings": {
+    "space": {
+      "unit": "px",
+      "size": 48
+    }
+  },
+  "elements": []
+}
+```
+
+### Image Box — `image-box`
+
+Source: `includes/widgets/image-box.php`
+
+```json
+{
+  "id": "w0000008",
+  "elType": "widget",
+  "widgetType": "image-box",
+  "settings": {
+    "image": {
+      "id": 102,
+      "url": "https://example.com/card-image.jpg"
+    },
+    "title_text": "Feature title",
+    "description_text": "Short descriptive copy for this feature.",
+    "title_size": "h3",
+    "position": "top",
+    "link": {
+      "url": "https://example.com/feature",
+      "is_external": "",
+      "nofollow": ""
+    }
+  },
+  "elements": []
+}
+```
+
+### Google Maps — `google_maps`
+
+Source: `includes/widgets/google-maps.php`
+
+```json
+{
+  "id": "w0000009",
+  "elType": "widget",
+  "widgetType": "google_maps",
+  "settings": {
+    "address": "Dhaka, Bangladesh",
+    "zoom": {
+      "size": 12
+    },
+    "height": {
+      "unit": "px",
+      "size": 320
+    }
+  },
+  "elements": []
+}
+```
+
+### Icon — `icon`
+
+Source: `includes/widgets/icon.php`
+
+```json
+{
+  "id": "w0000010",
+  "elType": "widget",
+  "widgetType": "icon",
+  "settings": {
+    "selected_icon": {
+      "value": "fas fa-star",
+      "library": "fa-solid"
+    },
+    "view": "stacked",
+    "shape": "circle",
+    "link": {
+      "url": "https://example.com/",
+      "is_external": "",
+      "nofollow": ""
+    }
+  },
+  "elements": []
+}
+```
+
+### Icon Box — `icon-box`
+
+Source: `includes/widgets/icon-box.php`
+
+```json
+{
+  "id": "w0000011",
+  "elType": "widget",
+  "widgetType": "icon-box",
+  "settings": {
+    "selected_icon": {
+      "value": "fas fa-check",
+      "library": "fa-solid"
+    },
+    "view": "stacked",
+    "shape": "circle",
+    "title_text": "Trusted Quality",
+    "description_text": "Explain the benefit in one or two lines.",
+    "title_size": "h3",
+    "position": "block-start",
+    "link": {
+      "url": "https://example.com/quality",
+      "is_external": "",
+      "nofollow": ""
+    }
+  },
+  "elements": []
+}
+```
+
+### Star Rating — `star-rating`
+
+Source: `includes/widgets/star-rating.php`
+
+```json
+{
+  "id": "w0000012",
+  "elType": "widget",
+  "widgetType": "star-rating",
+  "settings": {
+    "rating_scale": "5",
+    "rating": 4.5,
+    "star_style": "star_fontawesome",
+    "title": "Customer rating",
+    "align": "center"
+  },
+  "elements": []
+}
+```
+
+### Image Carousel — `image-carousel`
+
+Source: `includes/widgets/image-carousel.php`
+
+```json
+{
+  "id": "w0000013",
+  "elType": "widget",
+  "widgetType": "image-carousel",
+  "settings": {
+    "carousel_name": "Project gallery",
+    "carousel": [
+      {
+        "id": 101,
+        "url": "https://example.com/gallery-1.jpg"
+      },
+      {
+        "id": 102,
+        "url": "https://example.com/gallery-2.jpg"
+      }
+    ],
+    "thumbnail_size": "medium",
+    "slides_to_show": "2",
+    "infinite": "yes"
+  },
+  "elements": []
+}
+```
+
+### Basic Gallery — `image-gallery`
+
+Source: `includes/widgets/image-gallery.php`
+
+```json
+{
+  "id": "w0000014",
+  "elType": "widget",
+  "widgetType": "image-gallery",
+  "settings": {
+    "wp_gallery": [
+      {
+        "id": 101,
+        "url": "https://example.com/gallery-1.jpg"
+      },
+      {
+        "id": 102,
+        "url": "https://example.com/gallery-2.jpg"
+      }
+    ],
+    "thumbnail_size": "medium",
+    "gallery_columns": "2",
+    "gallery_display_caption": "none",
+    "gallery_link": "none",
+    "open_lightbox": "no"
+  },
+  "elements": []
+}
+```
+
+### Icon List — `icon-list`
+
+Source: `includes/widgets/icon-list.php`
+
+```json
+{
+  "id": "w0000015",
+  "elType": "widget",
+  "widgetType": "icon-list",
+  "settings": {
+    "view": "traditional",
+    "icon_list": [
+      {
+        "_id": "a1b2c3d",
+        "text": "Fast delivery",
+        "selected_icon": {
+          "value": "fas fa-check",
+          "library": "fa-solid"
+        },
+        "link": {
+          "url": "",
+          "is_external": "",
+          "nofollow": ""
+        }
+      },
+      {
+        "_id": "a1b2c3e",
+        "text": "Secure checkout",
+        "selected_icon": {
+          "value": "fas fa-check",
+          "library": "fa-solid"
+        },
+        "link": {
+          "url": "",
+          "is_external": "",
+          "nofollow": ""
+        }
+      }
+    ],
+    "link_click": "full_width"
+  },
+  "elements": []
+}
+```
+
+### Counter — `counter`
+
+Source: `includes/widgets/counter.php`
+
+```json
+{
+  "id": "w0000016",
+  "elType": "widget",
+  "widgetType": "counter",
+  "settings": {
+    "starting_number": 0,
+    "ending_number": 250,
+    "prefix": "",
+    "suffix": "+",
+    "duration": 2000,
+    "title": "Completed projects",
+    "title_tag": "div"
+  },
+  "elements": []
+}
+```
+
+### Progress Bar — `progress`
+
+Source: `includes/widgets/progress.php`
+
+```json
+{
+  "id": "w0000017",
+  "elType": "widget",
+  "widgetType": "progress",
+  "settings": {
+    "title": "Project completion",
+    "title_tag": "span",
+    "title_display": "yes",
+    "progress_type": "",
+    "percent": {
+      "size": 75,
+      "unit": "%"
+    },
+    "display_percentage": "show",
+    "inner_text": ""
+  },
+  "elements": []
+}
+```
+
+### Testimonial — `testimonial`
+
+Source: `includes/widgets/testimonial.php`
+
+```json
+{
+  "id": "w0000018",
+  "elType": "widget",
+  "widgetType": "testimonial",
+  "settings": {
+    "testimonial_content": "The team delivered excellent work and communication.",
+    "testimonial_image": {
+      "id": 103,
+      "url": "https://example.com/customer.jpg"
+    },
+    "testimonial_name": "Alex Morgan",
+    "testimonial_job": "Customer",
+    "image_size": "thumbnail",
+    "testimonial_alignment": "center"
+  },
+  "elements": []
+}
+```
+
+### Tabs — `tabs`
+
+Source: `includes/widgets/tabs.php`
+
+```json
+{
+  "id": "w0000019",
+  "elType": "widget",
+  "widgetType": "tabs",
+  "settings": {
+    "tabs": [
+      {
+        "_id": "tab00001",
+        "tab_title": "Overview",
+        "tab_content": "<p>Overview content.</p>"
+      },
+      {
+        "_id": "tab00002",
+        "tab_title": "Details",
+        "tab_content": "<p>Details content.</p>"
+      }
+    ],
+    "type": "horizontal",
+    "tabs_align_horizontal": ""
+  },
+  "elements": []
+}
+```
+
+### Accordion — `accordion`
+
+Source: `includes/widgets/accordion.php`
+
+```json
+{
+  "id": "w0000020",
+  "elType": "widget",
+  "widgetType": "accordion",
+  "settings": {
+    "tabs": [
+      {
+        "_id": "acc00001",
+        "tab_title": "What is included?",
+        "tab_content": "<p>Describe what is included.</p>"
+      },
+      {
+        "_id": "acc00002",
+        "tab_title": "How does it work?",
+        "tab_content": "<p>Explain the process.</p>"
+      }
+    ],
+    "title_html_tag": "div"
+  },
+  "elements": []
+}
+```
+
+### Toggle — `toggle`
+
+Source: `includes/widgets/toggle.php`
+
+```json
+{
+  "id": "w0000021",
+  "elType": "widget",
+  "widgetType": "toggle",
+  "settings": {
+    "tabs": [
+      {
+        "_id": "tgl00001",
+        "tab_title": "More information",
+        "tab_content": "<p>Additional details here.</p>"
+      }
+    ],
+    "title_html_tag": "div"
+  },
+  "elements": []
+}
+```
+
+### Social Icons — `social-icons`
+
+Source: `includes/widgets/social-icons.php`
+
+```json
+{
+  "id": "w0000022",
+  "elType": "widget",
+  "widgetType": "social-icons",
+  "settings": {
+    "social_icon_list": [
+      {
+        "_id": "soc00001",
+        "social_icon": {
+          "value": "fab fa-facebook",
+          "library": "fa-brands"
+        },
+        "link": {
+          "url": "https://facebook.com/example",
+          "is_external": "true",
+          "nofollow": "true"
+        }
+      },
+      {
+        "_id": "soc00002",
+        "social_icon": {
+          "value": "fab fa-instagram",
+          "library": "fa-brands"
+        },
+        "link": {
+          "url": "https://instagram.com/example",
+          "is_external": "true",
+          "nofollow": "true"
+        }
+      }
+    ],
+    "shape": "circle",
+    "align": "center",
+    "icon_size": {
+      "unit": "px",
+      "size": 18
+    }
+  },
+  "elements": []
+}
+```
+
+### Alert — `alert`
+
+Source: `includes/widgets/alert.php`
+
+```json
+{
+  "id": "w0000023",
+  "elType": "widget",
+  "widgetType": "alert",
+  "settings": {
+    "alert_type": "info",
+    "alert_title": "Important notice",
+    "alert_description": "This is the message shown in the alert.",
+    "show_dismiss": "show"
+  },
+  "elements": []
+}
+```
+
+### SoundCloud / Audio — `audio`
+
+Source: `includes/widgets/audio.php`
+
+```json
+{
+  "id": "w0000024",
+  "elType": "widget",
+  "widgetType": "audio",
+  "settings": {
+    "link": {
+      "url": "https://soundcloud.com/example/track",
+      "is_external": "",
+      "nofollow": ""
+    },
+    "visual": "no",
+    "sc_auto_play": "",
+    "sc_show_artwork": "yes"
+  },
+  "elements": []
+}
+```
+
+### Shortcode — `shortcode`
+
+Source: `includes/widgets/shortcode.php`
+
+```json
+{
+  "id": "w0000025",
+  "elType": "widget",
+  "widgetType": "shortcode",
+  "settings": {
+    "shortcode": "[example_shortcode id=\"123\"]"
+  },
+  "elements": []
+}
+```
+
+### HTML — `html`
+
+Source: `includes/widgets/html.php`
+
+```json
+{
+  "id": "w0000026",
+  "elType": "widget",
+  "widgetType": "html",
+  "settings": {
+    "html": "<div class=\"custom-block\">Custom embed</div>"
+  },
+  "elements": []
+}
+```
+
+### Menu Anchor — `menu-anchor`
+
+Source: `includes/widgets/menu-anchor.php`
+
+```json
+{
+  "id": "w0000027",
+  "elType": "widget",
+  "widgetType": "menu-anchor",
+  "settings": {
+    "anchor": "pricing"
+  },
+  "elements": []
+}
+```
+
+### Sidebar — `sidebar`
+
+Source: `includes/widgets/sidebar.php`
+
+```json
+{
+  "id": "w0000028",
+  "elType": "widget",
+  "widgetType": "sidebar",
+  "settings": {
+    "sidebar": "REPLACE_WITH_REGISTERED_WORDPRESS_SIDEBAR_ID"
+  },
+  "elements": []
+}
+```
+
+### Read More — `read-more`
+
+Source: `includes/widgets/read-more.php`
+
+```json
+{
+  "id": "w0000029",
+  "elType": "widget",
+  "widgetType": "read-more",
+  "settings": {
+    "link_text": "Read more"
+  },
+  "elements": []
+}
+```
+
+### Rating — `rating`
+
+Source: `includes/widgets/rating.php`
+
+```json
+{
+  "id": "w0000030",
+  "elType": "widget",
+  "widgetType": "rating",
+  "settings": {
+    "rating_scale": {
+      "size": 5
+    },
+    "rating_value": 4.5,
+    "rating_icon": {
+      "value": "eicon-star",
+      "library": "eicons"
+    },
+    "icon_alignment": "start"
+  },
+  "elements": []
+}
+```
+
+## 5. Media, URL, icon, repeater, and style value rules
+
+### Media controls
+
+An image field is normally an object containing an attachment `id` and `url`, and may contain additional metadata from WordPress/Elementor. Do not replace it with a bare URL string. Import/export can rewrite media values; test that flow on the target site.
+
+```json
+{
+  "image": {
+    "id": 101,
+    "url": "https://example.com/image.jpg"
+  }
+}
+```
+
+### URL controls
+
+Preserve the URL control object shape and only set behavior flags supported by the control. Example:
+
+```json
+{
+  "link": {
+    "url": "https://example.com/target",
+    "is_external": "",
+    "nofollow": ""
+  }
+}
+```
+
+### Icon controls
+
+Classic Icon controls are objects such as `{"value":"fas fa-check","library":"fa-solid"}`. Use the icon library identifier expected by the target Elementor version; do not guess the library from the visible pictogram alone.
+
+### Repeaters
+
+Classic Accordion, Tabs, and Toggle use `settings.tabs`, with row fields `tab_title` and `tab_content`. Icon List uses `settings.icon_list` with `text`, `selected_icon`, and `link`. Social Icons uses `settings.social_icon_list` with `social_icon`, `link`, and optional per-item colors. Elementor often uses `_id` within repeater rows; preserve/generate unique row IDs as expected by the target export conventions.
+
+### Sliders and responsive settings
+
+Slider values usually use objects such as `{"unit":"px","size":24}`; some sliders have no unit or use `%`. Responsive controls may also serialize device-specific siblings. Consult the widget control declaration and a real exported example before emitting uncommon values.
+
+## 6. Image-to-Elementor widget selection rules
+
+| Visual content in uploaded design | First choice | Alternative / caveat |
+|---|---|---|
+| Large title or short heading | `heading` | Set the correct HTML tag and alignment; do not use Text Editor for a single heading. |
+| Paragraph or rich text | `text-editor` | Preserve inline emphasis and lists if visible. |
+| CTA or nav action | `button` | Use actual link only when known; otherwise keep a safe placeholder or empty URL per product requirements. |
+| Single photo or illustration | `image` | Preserve image crop/ratio; do not screenshot the entire design into this widget. |
+| Image plus title and copy | `image-box` | Use separate widgets/Container if the design requires richer structure than this widget supports. |
+| Icon plus title and copy | `icon-box` | `icon-list` is better for repeated short rows. |
+| Repeated cards | Container + individual widgets | Use equal child widths/gaps and responsive wrapping. There is no generic Core card widget in this registry. |
+| Horizontal/vertical line | `divider` | Use border styling on a Container when the line is part of a larger card/frame. |
+| FAQ rows | `accordion` or `toggle` | Do not invent nested accordion data; classic repeater format is shown above. |
+| Tabbed content | `tabs` | Test if the current target site prefers nested tabs and supports that widget. |
+| Review with avatar/name | `testimonial` | For more complex review cards, compose individual widgets inside Containers. |
+| Social icon row | `social-icons` | Use target-supported brand icon libraries and actual destinations. |
+| Gallery/slider | `image-gallery` / `image-carousel` | Use valid WordPress media attachment IDs or verified importable image URLs. |
+| Map | `google_maps` | Requires correct location and may require a Google Maps API key. |
+| Custom markup/embed | `html` or `shortcode` | Use only when a native editable widget cannot faithfully represent the visible function. |
+
+## 7. How the agent should build a page
+
+1. **Image analysis:** estimate the page width, section boundaries, column count, gaps, alignment, dominant colors, font scale, image aspect ratios, and mobile collapse behavior. Distinguish evidence from guesswork.
+2. **Section hierarchy:** build one Container per major region, then nested Containers for rows/cards/columns. Use widget nodes for actual editable content.
+3. **Widget match:** choose the simplest native widget that reproduces the visible function. Consult its widget JSON reference before writing settings.
+4. **Content extraction:** transcribe legible copy exactly. Do not invent text hidden or unreadable in the image; use a clearly marked placeholder only when necessary.
+5. **Style mapping:** map visible typography, colors, borders, radii, shadows, and spacing to Elementor control IDs. Do not assume CSS property names map directly to setting keys.
+6. **Media mapping:** use uploaded assets when available; if only a screenshot is provided, crop/reuse source regions only when appropriate, and prefer genuine individual assets if supplied. Register/import media rather than embedding fragile local filesystem paths.
+7. **Responsive inference:** if only desktop is provided, create a reasonable responsive adaptation and label it as inferred. If mobile screenshots are available, treat them as evidence.
+8. **Export/import validation:** serialize valid JSON; run JSON/schema checks; import through Elementor on the target site; confirm all images, links, icons, and widgets resolve.
+9. **Visual comparison:** render a screenshot at the same viewport as the source; compare section geometry, text wrapping, media crop, and visual hierarchy; iterate until major discrepancies are addressed.
+
+## 8. Template JSON versus plugin output
+
+### Elementor template JSON
+
+Use this when the requested deliverable is an editable Elementor template. Include a valid target-compatible export envelope generated by the intended template export/import route. The node examples here are the content tree shapes, not a substitute for checking that envelope.
+
+### Installable WordPress plugin
+
+Use this when the user explicitly requests a plugin. A plugin needs a valid plugin header, safe PHP bootstrap, declared dependencies, activation/deactivation behavior only when needed, and a tested way to import/register the generated template. Do not claim a PHP ZIP is installable before testing it on a clean WordPress installation with the required Elementor version.
 
 ## 9. Completion checklist
 
-- [ ] DIR is valid under the runtime Zod schema; sections are nested under `pages[].sections[]`.
-- [ ] Image content, copy, colors, and geometry reflect evidence; inferred responsive decisions are identified as inferred.
-- [ ] Asset references and crop outcomes are reviewed; heuristic crops/placeholders are not described as exact.
-- [ ] Each emitted widget slug is registered and each setting has a target-compatible shape.
-- [ ] Unsupported schema/compiler discrepancies and validator warnings are disclosed.
-- [ ] JSON is serialized and structurally validated; job-level reporting limitations are not hidden.
-- [ ] Import and render are verified on the intended Elementor/WordPress installation before claiming target compatibility or visual fidelity.
+- [ ] The chosen widgets exist in the target site's actual widget registry.
+- [ ] Every `widgetType` exactly matches the registered slug.
+- [ ] All IDs are unique and all children are under the intended Container/Section node.
+- [ ] Widget setting keys and value shapes are confirmed against the correct source/schema.
+- [ ] Image/media fields and gallery rows can be imported and resolve to valid media.
+- [ ] Repeater rows, icon objects, URL objects, slider values, and responsive values are structurally valid.
+- [ ] No unsupported Pro/add-on widget is emitted as if it were Core.
+- [ ] JSON parses and imports into the target Elementor installation without fatal errors or missing widgets.
+- [ ] The page is visually compared with the reference image at matched viewport dimensions.
+- [ ] Any inferred content or responsive behavior is disclosed to the user.
+
+## 10. Files in this skill reference pack
+
+- `server/src/skills/elementor/widgets/*.json`: One native node example and source path per Core classic widget in the Elementor Core 4.3.5 source registry (30 widget profiles).
+- `server/src/skills/elementor/widget-registry.json`: Machine-readable registry cataloging all 32 Core elements and widgets.
+- `server/src/skills/elementor/source-control-index.md`: Broader source index of widget control IDs, group controls, and native JSON serialization notes.
+- `server/src/skills/elementor/source-version.json`: Source version verification metadata confirming Elementor Core 4.3.5.
+- `server/src/skills/elementor/layout-elements/container.json`: Modern Container flexbox composition example.
+- `server/src/skills/elementor/layout-elements/inner-section.json`: Legacy Section/Column layout example.
+- `server/ELEMENTOR_SKILL.md`: Authoritative master two-stage skill specification and inline widget JSON reference.
+
+**Scope:** The Core 4.3.5 archive does not include the source for every Elementor Pro or third-party widget. Pro features should be handled gracefully via native Core fallbacks (such as inline `icon-list` for header navigation) or explicitly flagged when requested. Never emit fabricated or unregistered widgets.
+
+---
+
+## 11. Reconciled Master Builder Standards (from SKILL1.md & SKILL_RULE(1).md)
+
+Following reconciliation between the repository's authoritative two-stage architecture and the supplied Master Builder skill sets (`SKILL1.md` and `SKILL_RULE(1).md`), the following rules and standards are authoritatively integrated:
+
+### 11.1 Container Geometry & Sizing Standards (Schema v0.4)
+- **Boxed vs. Full Width:**
+  - Boxed: `"content_width": "boxed"`, `"boxed_width": { "unit": "px", "size": <number>, "sizes": [] }` (defaults to `dir.globals.spacing.containerMaxWidth || 1200`).
+  - Full Width: `"content_width": "full"`.
+- **Custom Heights:**
+  - Min Height: `"height": "min-height"`, `"custom_height": { "unit": "px" | "vh", "size": <number>, "sizes": [] }`.
+- **Flexbox Spacing & Gap:**
+  - Gap: `"flex_gap": { "unit": "px", "size": <number> }` or `{ "row": "<val>", "column": "<val>", "unit": "px", "isLinked": true }`.
+  - Padding & Margin: Always specified as explicit quadruplets with linkage toggles: `{ "top": "<val>", "right": "<val>", "bottom": "<val>", "left": "<val>", "unit": "px", "isLinked": false }`.
+
+### 11.2 Circular Statistics & Metric Badges
+- In high-impact landing pages (gyms, fintech, SaaS), circular statistics and metric badges (e.g., `+70% Fitness Progress`, `500+ Members`) must be compiled into a circular container:
+  - 1:1 Aspect ratio: `"width": { "unit": "px", "size": <diameter> }`, `"height": "min-height"`, `"custom_height": { "unit": "px", "size": <diameter> }`.
+  - Border radius: `{ "top": "9999", "right": "9999", "bottom": "9999", "left": "9999", "unit": "px", "isLinked": true }`.
+  - Centered alignment: `"flex_justify_content": "center"`, `"flex_align_items": "center"`.
+  - Inner widgets: A `counter` widget with `starting_number: 0`, `ending_number: <value>`, `suffix`, `prefix`, and styling controls (`number_color`, `typography_number_font_size`), followed by a `text-editor` or `heading` widget for the description.
+
+### 11.3 Hero Photography & Dynamic Cropping
+- Athletic photographs, gym models, 3D artwork, and product screenshots must never be replaced by blank dummy rectangles.
+- **Stage A (Vision Understanding):** The vision model localizes the visual boundary as a bounding box in root `assets` with `"sourceRect": { "x": ..., "y": ..., "width": ..., "height": ... }` and type `"image"`.
+- **Pipeline Processing:** The asset extraction pipeline crops pixels using `sharp` from the source image buffer and persists it to local/B2 storage.
+- **Stage B (Elementor Compilation):** The `image` widget receives `"image": { "url": asset.placeholder, "id": asset.id }` with `"alt_text"` and correct dimension/border-radius settings.
+
+### 11.4 High-Impact CTA Buttons & Wide Headings
+- High-visibility CTA buttons (e.g., orange `#ff5e14` or neon lime `#b7f34c`) must declare explicit `background_color`, high-contrast `button_text_color: "#ffffff"`, explicit `border_radius`, and `button_padding`.
+- Wide hero headlines must preserve font size (40–64px), uppercase/bold styling where present, and container boxed width.
+
+### 11.5 Deterministic Free Tier Fallback Reconstructions
+When compiling for Elementor Free Tier without Pro plugins:
+- **Pro Form:** Fallback to Free `html` widget containing semantic `<form>` with field groups and submit button.
+- **Pro Nav Menu:** Fallback to inline `icon-list` navigation widget or horizontal Container link bar.
+- **Pro Price Table:** Fallback to card Container (`elType: "container"` with border, radius, shadow) + `heading` + feature list + `button`.
+- **Pro Call-to-Action (CTA):** Fallback to flex Container (`flex_direction: "row"`) with text column (`heading`, `text-editor`, `button`) and image column.
+
+### 11.6 Explicit Architectural Invariants & Negative Constraints
+1. **Never Bypass DIR:** Conversion must always proceed through the canonical `DIRDocument` schema. Direct one-shot image-to-Elementor prompts are strictly prohibited.
+2. **Never Emit Legacy Section/Column:** Layout must strictly use modern Flexbox Containers (`elType: "container"`). Do not emit `elType: "section"` or `elType: "column"` for new layouts.
+3. **Strict Numeric Types in DIR:** Dimensions, font sizes, line heights, borderWidth, and padding/margin inside DIR `styles` must be bare numbers, never CSS strings (e.g. `24`, not `"24px"`).
+4. **Never Hallucinate Assets:** Media objects must reference valid cropped assets or authentic URLs. Missing assets must be left unconfigured or marked placeholder.

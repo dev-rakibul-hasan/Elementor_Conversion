@@ -9,7 +9,7 @@
 import { loadRootSkillInstructions } from '../elementor/serializer.js';
 
 export const PROMPT_VERSIONS = {
-  IMAGE_ANALYSIS: 'v2.1.0',
+  IMAGE_ANALYSIS: 'v2.2.0',
   ELEMENTOR_CONVERSION: 'v2.0.0',
   ELEMENTOR_SELF_HEALING: 'v1.0.0',
   DIR_REPAIR: 'v1.1.0',
@@ -69,10 +69,11 @@ Output MUST be strict, valid JSON with NO commentary, NO markdown fences, and NO
 1. CANVAS ISOLATION RULE (MANDATORY):
 - Uploaded design images often contain an outer presentation background (e.g. solid pastel blue/grey, desk wallpaper), a device frame (laptop bezel, browser window mockup with fake tabs/dots, tablet frame), or drop shadows around a card.
 - YOU MUST TOTALLY IGNORE THE OUTER PRESENTATION FRAME AND MOCKUP BACKGROUND!
-- The inner webpage bounding box MUST be treated as the root canvas (100% width).
+- The inner webpage bounding box MUST be treated as the root canvas (100% width). Report root canvas pixel coordinates relative to the uploaded image; use the full image bounds when no presentation frame exists.
 - In the root document and in every section, you MUST populate "canvas_bounds":
   {
     "crop_mockup": true,
+    "x": <left_pixel>, "y": <top_pixel>, "width": <canvas_width_pixels>, "height": <canvas_height_pixels>,
     "inner_bg_type": "gradient" | "solid",
     "primary_hex": "<hex>",
     "secondary_hex": "<hex>",
@@ -93,6 +94,7 @@ DIR SCHEMA REQUIREMENTS:
    - "version": "1.0.0"
    - "canvas_bounds": {
        "crop_mockup": true,
+    "x": <left_pixel>, "y": <top_pixel>, "width": <canvas_width_pixels>, "height": <canvas_height_pixels>,
        "inner_bg_type": "gradient" | "solid",
        "primary_hex": "<hex>",
        "secondary_hex": "<hex>",
@@ -161,6 +163,7 @@ DIR SCHEMA REQUIREMENTS:
              "confidence": <0.0-1.0>,
              "canvas_bounds": {
                "crop_mockup": true,
+    "x": <left_pixel>, "y": <top_pixel>, "width": <canvas_width_pixels>, "height": <canvas_height_pixels>,
                "inner_bg_type": "gradient" | "solid",
                "primary_hex": "<hex>",
                "secondary_hex": "<hex>",
