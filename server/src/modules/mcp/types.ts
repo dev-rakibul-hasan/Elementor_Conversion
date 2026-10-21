@@ -64,6 +64,7 @@ export interface MCPConnectionConfig {
 }
 
 export interface MCPCapabilities {
+  supportsIdempotency?: boolean;
   canCreatePage: boolean;
   canUpdatePage: boolean;
   canPublishPage: boolean;

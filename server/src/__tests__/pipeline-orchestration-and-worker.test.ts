@@ -10,7 +10,7 @@
  * 6. API Integration: Projects endpoint includes stages on conversion jobs for frontend progress tracking.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import http from 'http';
 import sharp from 'sharp';
 import { createRequire } from 'module';
@@ -80,6 +80,10 @@ describe('Pipeline Orchestration & Worker Queue Architecture', () => {
       },
     });
     testProjectId = project.id;
+  });
+
+  afterEach(async () => {
+    await prisma.conversionJob.updateMany({ where: { projectId: testProjectId, status: { notIn: ['preview_ready', 'published', 'failed', 'cancelled'] } }, data: { status: 'cancelled', workerId: null, leaseExpiresAt: null, lockedAt: null } });
   });
 
   afterAll(async () => {
@@ -205,7 +209,7 @@ describe('Pipeline Orchestration & Worker Queue Architecture', () => {
       expect(refreshed?.leaseExpiresAt).toBeNull();
     });
 
-    it('resets attempts and clears worker locks when job is retried via API', async () => {
+    it('preserves monotonic attempts and renews the retry allowance for a stopped job', async () => {
       const failedJob = await prisma.conversionJob.create({
         data: {
           projectId: testProjectId,
@@ -233,7 +237,8 @@ describe('Pipeline Orchestration & Worker Queue Architecture', () => {
         where: { id: failedJob.id },
       });
       expect(retried?.status).toBe('queued');
-      expect(retried?.attempts).toBe(0);
+      expect(retried?.attempts).toBe(3);
+      expect(retried?.maxAttempts).toBe(6);
       expect(retried?.workerId).toBeNull();
       expect(retried?.lockedAt).toBeNull();
       expect(retried?.leaseExpiresAt).toBeNull();
@@ -256,7 +261,7 @@ describe('Pipeline Orchestration & Worker Queue Architecture', () => {
 
       await expect(
         orchestrator.processJob(activeJob.id, { workerId: 'worker-intruder' })
-      ).rejects.toThrow(/actively leased to another worker/);
+      ).rejects.toThrow(/lease lost|actively leased to another worker/);
     });
   });
 
@@ -450,7 +455,7 @@ describe('Pipeline Orchestration & Worker Queue Architecture', () => {
           projectId: testProjectId,
           status: 'queued',
           sourceAssetId: asset.id,
-          dirArtifact: sampleValidDIR as any,
+          dirArtifact: { ...sampleValidDIR, assets: sampleValidDIR.assets.map((asset) => ({ ...asset, sourceRect: { x: 10, y: 10, width: 100, height: 80 } })) } as any,
           attempts: 1,
         },
       });
@@ -472,7 +477,8 @@ describe('Pipeline Orchestration & Worker Queue Architecture', () => {
       expect(preview.elementCount).toBeGreaterThan(0);
       expect(preview.containerCount).toBeGreaterThan(0);
       expect(preview.widgetCount).toBeGreaterThan(0);
-      expect(preview.visualQuality?.passed).toBe(true);
+      expect(preview.qualityAudit?.passed).toBe(true);
+      expect(preview.visualPreviewRendered).toBe(false);
 
       // 5. Verify all 7 stages are recorded in JobStage table
       const stages = await prisma.jobStage.findMany({

@@ -77,7 +77,7 @@ export default function SettingsPage() {
     setTestingId(id);
     try {
       const res = await api.sites.test(id);
-      if (res && res.isMcpAvailable) {
+      if (res?.ok) {
         toast.success('Connection verified! MCP capabilities discovered.');
       } else {
         toast.error(res?.message || 'Connection test failed');

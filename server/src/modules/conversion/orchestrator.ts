@@ -3,6 +3,10 @@
  * Coordinates image analysis -> DIR generation -> validation & repair -> Elementor compilation -> artifact persistence
  */
 
+import { auditDIRContent } from './content-audit.js';
+import { randomUUID } from 'node:crypto';
+import { recordGeneratedAsset } from '../storage/accounting.js';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { logger } from '../../lib/logger.js';
 import { env } from '../../config/index.js';
@@ -12,7 +16,7 @@ import { normalizeDIR, normalizeSection } from '../dir/normalizer.js';
 import { convertDIRToElementor } from '../elementor/generator.js';
 import { validateElementor } from '../elementor/validator.js';
 import { serializeElementorTemplate } from '../elementor/serializer.js';
-import { getStorage } from '../storage/factory.js';
+import { createStorageAdapter, getStorage } from '../storage/factory.js';
 import {
   getImageAnalysisPrompt,
   getDIRRepairPrompt,
@@ -27,6 +31,8 @@ import type { StageName } from '@prisma/client';
 
 export interface QualityAuditResult {
   passed: boolean;
+  scope: 'structural';
+  visualComparisonPerformed: false;
   totalPages: number;
   totalSections: number;
   totalDirNodes: number;
@@ -120,14 +126,8 @@ function enforceFactualMetadata(
   if (!doc || typeof doc !== 'object') return;
   doc.meta = {
     sourceImageHash: sourceHash,
-    sourceWidth:
-      typeof doc.meta?.sourceWidth === 'number' && doc.meta.sourceWidth > 0
-        ? doc.meta.sourceWidth
-        : sourceAsset?.width || 1440,
-    sourceHeight:
-      typeof doc.meta?.sourceHeight === 'number' && doc.meta.sourceHeight > 0
-        ? doc.meta.sourceHeight
-        : sourceAsset?.height || 900,
+    sourceWidth: sourceAsset?.width || 1440,
+    sourceHeight: sourceAsset?.height || 900,
     analysisProvider: provider,
     analysisModel: model,
     analysisTimestamp: doc.meta?.analysisTimestamp || new Date().toISOString(),
@@ -139,6 +139,7 @@ function enforceFactualMetadata(
 }
 
 export class ConversionOrchestrator {
+  private executions = new Map<string, { workerId: string; attempt: number }>();
   private aiRouter = getAIRouter();
   private storage = getStorage();
 
@@ -148,6 +149,7 @@ export class ConversionOrchestrator {
     attempt: number,
     inputPayload?: any
   ): Promise<Date> {
+    await this.assertOwnership(jobId);
     const startedAt = new Date();
     try {
       await prisma.jobStage.upsert({
@@ -192,6 +194,7 @@ export class ConversionOrchestrator {
       tokensUsed?: number;
     }
   ): Promise<void> {
+    await this.assertOwnership(jobId);
     const completedAt = new Date();
     const durationMs = completedAt.getTime() - startedAt.getTime();
     try {
@@ -240,6 +243,7 @@ export class ConversionOrchestrator {
     startedAt: Date,
     errorMessage: string
   ): Promise<void> {
+    await this.assertOwnership(jobId);
     const completedAt = new Date();
     const durationMs = completedAt.getTime() - startedAt.getTime();
     try {
@@ -286,28 +290,17 @@ export class ConversionOrchestrator {
       throw new Error(`Job ${jobId} not found`);
     }
 
-    const now = new Date();
-    // Concurrency / duplicate execution prevention
-    if (options?.workerId) {
-      if (job.workerId && job.workerId !== options.workerId && job.leaseExpiresAt && job.leaseExpiresAt > now) {
-        throw new Error(`Job ${jobId} is actively leased to another worker (${job.workerId})`);
-      }
-    } else {
-      if (job.workerId && job.leaseExpiresAt && job.leaseExpiresAt > now) {
-        throw new Error(`Job ${jobId} is currently being processed by worker ${job.workerId}`);
-      }
-      // Lock for direct execution
-      await prisma.conversionJob.update({
-        where: { id: jobId },
-        data: {
-          lockedAt: now,
-          leaseExpiresAt: new Date(now.getTime() + 3 * 60 * 1000),
-          lastHeartbeat: now,
-        },
-      });
-    }
-
+    if (this.executions.has(jobId)) throw new Error('Job is already executing in this process');
     const attempt = options?.attempt ?? (job.attempts > 0 ? job.attempts : 1);
+    const workerId = options?.workerId || `direct-${randomUUID()}`;
+    if (!options?.workerId) {
+      const claim = await prisma.conversionJob.updateMany({ where: {
+        id: jobId, status: { notIn: ['cancelled', 'published'] },
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: new Date() } }],
+      }, data: { workerId, attempts: attempt, lockedAt: new Date(), lastHeartbeat: new Date(), leaseExpiresAt: new Date(Date.now() + 180000) } });
+      if (claim.count !== 1) throw new Error('Job is actively leased by another execution');
+    }
+    this.executions.set(jobId, { workerId, attempt });
     let currentStageName: StageName | null = null;
     let stageStartTime: Date | null = null;
 
@@ -335,7 +328,7 @@ export class ConversionOrchestrator {
 
       let sourceBuffer: Buffer;
       try {
-        sourceBuffer = await this.storage.download(sourceAsset.storagePath);
+        sourceBuffer = await createStorageAdapter({ provider: sourceAsset.storageProvider }).download(sourceAsset.storagePath);
       } catch (dlErr: any) {
         throw new Error(`Failed to read source asset image from storage: ${dlErr?.message || dlErr}`);
       }
@@ -436,6 +429,8 @@ export class ConversionOrchestrator {
       }
 
       // Resolve and extract sub-assets (e.g. hero artwork, logos)
+      if (dirDoc.pages.length !== 1) throw new Error('Conversion accepts exactly one page per screenshot');
+      await this.assertOwnership(jobId);
       await this.resolveAndExtractAssets(job, sourceAsset, sourceBuffer, imageMeta, dirDoc);
 
       await this.recordStageCompletion(jobId, 'dir_validation', attempt, stageStartTime, {
@@ -471,12 +466,16 @@ export class ConversionOrchestrator {
               { role: 'user', content: conversionPrompt.userPrompt },
             ],
             responseFormat: { type: 'json_object' },
+            sourceImageHash: dirDoc.meta.sourceImageHash,
+            promptVersion: conversionPrompt.version,
+            stageName: 'elementor_generation',
             maxTokens: 16384,
           });
           if (aiGenRes.content && aiGenRes.finishReason !== 'length') {
             const parsed = JSON.parse(aiGenRes.content);
             const val = validateElementor(parsed);
             if (val.valid) {
+              auditDIRContent(dirDoc, parsed);
               initialDoc = parsed;
               report = buildConversionReport(parsed, val.stats);
               structureAiMeta = {
@@ -528,7 +527,7 @@ export class ConversionOrchestrator {
       let validation = validateElementor(elementorDoc);
 
       // Execute Stage D Self-Healing Gate if review provider is available and validation found issues
-      if (this.aiRouter.isProviderAvailable('openrouter') && !validation.valid) {
+      if (!validation.valid) {
         try {
           const healingPrompt = getElementorSelfHealingGatePrompt(dirDoc, elementorDoc, validation.errors);
           const healRes = await this.aiRouter.execute({
@@ -546,6 +545,7 @@ export class ConversionOrchestrator {
             const healedJson = JSON.parse(healRes.content);
             const healedValidation = validateElementor(healedJson);
             if (healedValidation.valid) {
+              auditDIRContent(dirDoc, healedJson);
               elementorDoc = healedJson;
               validation = healedValidation;
               logger.info({ jobId }, 'Stage D Self-Healing Gate successfully patched and validated Elementor AST');
@@ -566,6 +566,7 @@ export class ConversionOrchestrator {
       }
 
       // Verify deterministic visual quality & structural completeness
+      auditDIRContent(dirDoc, elementorDoc);
       const qualityAudit = this.verifyVisualQuality(dirDoc, elementorDoc);
       logger.info({ jobId, qualityAudit }, 'Visual quality verification passed');
 
@@ -589,19 +590,18 @@ export class ConversionOrchestrator {
 
       // Save Elementor JSON artifact
       const serialized = serializeElementorTemplate(elementorDoc);
+      const persistedDocument = JSON.parse(serialized);
+      auditDIRContent(dirDoc, persistedDocument);
       const elementorBuffer = Buffer.from(serialized, 'utf-8');
-      const storageKey = `projects/${job.projectId}/elementor-${jobId}.json`;
-      const uploadRes = await this.storage.upload(storageKey, elementorBuffer, 'application/json');
-
-      const elementorAsset = await prisma.asset.create({
-        data: {
+      const storageKey = `projects/${job.projectId}/elementor-${jobId}-${randomUUID()}.json`;
+      const elementorAsset = await this.saveGeneratedAsset(jobId, storageKey, elementorBuffer, 'application/json', {
           projectId: job.projectId,
           fileName: `elementor-${jobId}.json`,
           mimeType: 'application/json',
-          sizeBytes: BigInt(uploadRes.size),
-          storageProvider: 'local',
-          storagePath: uploadRes.key,
-          sha256: uploadRes.contentHash,
+          sizeBytes: BigInt(elementorBuffer.length),
+          storageProvider: env.STORAGE_PROVIDER,
+          storagePath: storageKey,
+          sha256: computeContentHash(elementorBuffer),
           metadata: {
             elementCount: report.elementCount,
             containerCount: report.containerCount,
@@ -609,31 +609,30 @@ export class ConversionOrchestrator {
             widgetsUsed: report.widgetsUsed,
             qualityAudit: qualityAudit as any,
           },
-        },
       });
 
       const previewArtifact = {
         elementorAssetId: elementorAsset.id,
-        storagePath: uploadRes.key,
+        storagePath: storageKey,
         elementCount: report.elementCount,
         containerCount: report.containerCount,
         widgetCount: report.widgetCount,
         widgetsUsed: report.widgetsUsed,
         qualityAudit,
-        visualQuality: qualityAudit,
-        renderedAt: new Date().toISOString(),
+        artifactType: 'elementor_json',
+        visualPreviewRendered: false,
+        savedAt: new Date().toISOString(),
       };
 
       // Update job to preview_ready with all verified artifacts
-      await prisma.conversionJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateOwned(jobId, {
+          errorMessage: null,
+          errorDetails: Prisma.DbNull,
           status: 'preview_ready',
           currentStage: 'preview_rendering',
           dirArtifact: dirDoc as any,
-          elementorArtifact: elementorDoc as any,
+          elementorArtifact: persistedDocument,
           previewArtifact: previewArtifact as any,
-        },
       });
 
       await this.recordStageCompletion(jobId, 'preview_rendering', attempt, stageStartTime, {
@@ -645,27 +644,30 @@ export class ConversionOrchestrator {
       logger.error({ jobId, error: err.message }, 'Conversion job failed');
 
       if (currentStageName && stageStartTime) {
-        await this.recordStageFailure(jobId, currentStageName, attempt, stageStartTime, err.message);
+        await this.recordStageFailure(jobId, currentStageName, attempt, stageStartTime, err.message).catch(() => {});
       }
 
       if (!options?.workerId) {
         try {
-          await prisma.conversionJob.update({
-            where: { id: jobId },
-            data: {
+          await this.updateOwned(jobId, {
               status: 'failed',
               errorMessage: err.message,
               errorDetails: { stack: err.stack },
               lockedAt: null,
               leaseExpiresAt: null,
               workerId: null,
-            },
           });
         } catch {
           // Job record might have been deleted concurrently
         }
       }
       throw err;
+    } finally {
+      if (!options?.workerId) {
+        await prisma.conversionJob.updateMany({ where: { id: jobId, workerId, attempts: attempt },
+          data: { workerId: null, lockedAt: null, leaseExpiresAt: null } }).catch(() => {});
+      }
+      this.executions.delete(jobId);
     }
   }
 
@@ -674,11 +676,13 @@ export class ConversionOrchestrator {
     sourceAsset: any,
     sourceBuffer: Buffer,
     sourceMeta: { width: number; height: number },
-    attempt: number
+    attempt: number,
+    allowCanvasCrop = true
   ): Promise<{
     dirDoc: DIRDocument;
     aiResMeta: { provider: string; model: string; tokensUsed: number };
   }> {
+    sourceAsset = { ...sourceAsset, width: sourceMeta.width, height: sourceMeta.height };
     const prompt = getImageAnalysisPrompt({
       width: sourceMeta.width || sourceAsset?.width || 1440,
       height: sourceMeta.height || sourceAsset?.height || 900,
@@ -724,6 +728,8 @@ export class ConversionOrchestrator {
       );
       const cacheKey = this.aiRouter.computeCacheKey({
         sourceImageHash: sourceHash,
+        normalizedInput: [{ role: 'system', content: prompt.systemPrompt }, { role: 'user', content: userParts }],
+        skillVersion: skillVer,
         schemaVersion: schemaVer,
         promptVersion: promptVer,
         provider: aiRes.provider,
@@ -737,6 +743,8 @@ export class ConversionOrchestrator {
     if ('error' in parsed) {
       const cacheKey = this.aiRouter.computeCacheKey({
         sourceImageHash: sourceHash,
+        normalizedInput: [{ role: 'system', content: prompt.systemPrompt }, { role: 'user', content: userParts }],
+        skillVersion: skillVer,
         schemaVersion: schemaVer,
         promptVersion: promptVer,
         provider: aiRes.provider,
@@ -762,6 +770,8 @@ export class ConversionOrchestrator {
       logger.warn({ jobId: job.id }, 'Cached AI response failed schema validation; invalidating cache entry');
       const cacheKey = this.aiRouter.computeCacheKey({
         sourceImageHash: sourceHash,
+        normalizedInput: [{ role: 'system', content: prompt.systemPrompt }, { role: 'user', content: userParts }],
+        skillVersion: skillVer,
         schemaVersion: schemaVer,
         promptVersion: promptVer,
         provider: aiRes.provider,
@@ -879,6 +889,30 @@ export class ConversionOrchestrator {
     }
 
     const validDoc = validation.document!;
+    const bounds = validDoc.canvas_bounds;
+    if (allowCanvasCrop && bounds?.crop_mockup && [bounds.x, bounds.y, bounds.width, bounds.height].some((value) => value === undefined)) {
+      throw new Error('Canvas isolation requires explicit x, y, width and height in pixels');
+    }
+    if (allowCanvasCrop && bounds?.crop_mockup && bounds.x !== undefined && bounds.y !== undefined && bounds.width !== undefined && bounds.height !== undefined) {
+      const { x, y, width, height } = bounds;
+      if (![x, y, width, height].every(Number.isInteger) || x < 0 || y < 0 || width < 1 || height < 1 || x + width > sourceMeta.width || y + height > sourceMeta.height) {
+        throw new Error('Detected canvas bounds lie outside the source image');
+      }
+      if (x !== 0 || y !== 0 || width !== sourceMeta.width || height !== sourceMeta.height) {
+        const crop = await cropAsset(sourceBuffer, { x, y, width, height });
+        const croppedMeta = await getImageMetadata(crop);
+        const result = await this.executeDIRStage(job, { ...sourceAsset, width: croppedMeta.width, height: croppedMeta.height, sha256: computeContentHash(crop) }, crop, croppedMeta, attempt, false);
+        for (const asset of result.dirDoc.assets) {
+          if (asset.sourceRect) { asset.sourceRect.x += x; asset.sourceRect.y += y; }
+        }
+        result.dirDoc.canvas_bounds = bounds;
+        result.dirDoc.meta.sourceImageHash = sourceHash;
+        result.dirDoc.meta.sourceWidth = sourceMeta.width;
+        result.dirDoc.meta.sourceHeight = sourceMeta.height;
+        result.aiResMeta.tokensUsed += (aiRes.usage?.inputTokens || 0) + (aiRes.usage?.outputTokens || 0);
+        return result;
+      }
+    }
     return {
       dirDoc: validDoc,
       aiResMeta: {
@@ -906,8 +940,10 @@ export class ConversionOrchestrator {
       if (node.kind === 'image') {
         imageNodes.push(node);
       }
-      const children = node.children || node.nodes || node.elements;
-      if (children && Array.isArray(children)) {
+      const children = [...(node.children || node.nodes || node.elements || []),
+        ...(node.tabs || []).flatMap((tab: any) => tab.children || []),
+        ...(node.items || []).flatMap((item: any) => item.children || [])];
+      if (children.length) {
         for (const child of children) {
           collectImageNodes(child);
         }
@@ -945,110 +981,24 @@ export class ConversionOrchestrator {
       }
     }
 
-    // 3. Resolve and extract cropped assets for all visual assets or referenced assets
+    // Extract only referenced assets with validated coordinates in the original screenshot.
     for (const asset of dirDoc.assets) {
-      const isReferencedByImage = imageNodes.some((n) => n.assetId === asset.id);
-      const isVisualType = ['image', 'logo', 'icon', 'background', 'placeholder'].includes(asset.type);
-
-      if ((isVisualType || isReferencedByImage) && !asset.placeholder) {
-        let cropBuffer: Buffer | null = null;
-
-        if (sourceBuffer) {
-          // Attempt A: Exact bounding box cropping from sourceRect
-          if (asset.sourceRect && asset.sourceRect.width >= 4 && asset.sourceRect.height >= 4) {
-            let safeRect = asset.sourceRect;
-            if (meta && meta.width > 0 && meta.height > 0) {
-              const clampedX = Math.max(0, Math.min(meta.width - 1, safeRect.x));
-              const clampedY = Math.max(0, Math.min(meta.height - 1, safeRect.y));
-              const clampedWidth = Math.min(meta.width - clampedX, Math.max(4, safeRect.width));
-              const clampedHeight = Math.min(meta.height - clampedY, Math.max(4, safeRect.height));
-              safeRect = { x: clampedX, y: clampedY, width: clampedWidth, height: clampedHeight };
-            }
-            try {
-              cropBuffer = await cropAsset(sourceBuffer, safeRect);
-            } catch (cropErr: any) {
-              logger.warn({ assetId: asset.id, err: cropErr?.message }, 'Failed to crop asset from sourceRect');
-            }
-          }
-
-          // Attempt B: Proportional fallback extraction based on role/type if sourceRect failed or missing
-          if (!cropBuffer) {
-            try {
-              const imgMeta = meta || (await getImageMetadata(sourceBuffer));
-              const w = imgMeta.width;
-              const h = imgMeta.height;
-              const roleLower = (asset.role || '').toLowerCase();
-
-              let fallbackRect = {
-                x: Math.round(w * 0.15),
-                y: Math.round(h * 0.2),
-                width: Math.round(w * 0.7),
-                height: Math.round(h * 0.55),
-              };
-
-              if (asset.type === 'logo' || roleLower.includes('logo') || roleLower.includes('crest')) {
-                fallbackRect = {
-                  x: Math.round(w * 0.05),
-                  y: Math.round(h * 0.03),
-                  width: Math.min(w, Math.max(32, Math.round(w * 0.25))),
-                  height: Math.min(h, Math.max(24, Math.round(h * 0.12))),
-                };
-              } else if (asset.type === 'icon' || roleLower.includes('icon') || roleLower.includes('dumbbell')) {
-                fallbackRect = {
-                  x: Math.round(w * 0.1),
-                  y: Math.round(h * 0.05),
-                  width: Math.min(w, Math.max(24, Math.round(w * 0.1))),
-                  height: Math.min(h, Math.max(24, Math.round(h * 0.08))),
-                };
-              }
-
-              cropBuffer = await cropAsset(sourceBuffer, fallbackRect);
-            } catch (fallbackErr: any) {
-              logger.warn({ assetId: asset.id, err: fallbackErr?.message }, 'Failed to extract fallback crop region');
-            }
-          }
-        }
-
-        // Attempt C: Persist extracted cropBuffer to local storage & DB
-        if (cropBuffer) {
-          try {
-            const assetHash = computeContentHash(cropBuffer);
-            const storageKey = `projects/${job.projectId}/assets/${asset.id}_${assetHash.slice(0, 8)}.png`;
-            const uploadRes = await this.storage.upload(storageKey, cropBuffer, 'image/png');
-            const assetUrl = `/storage/${uploadRes.key}`;
-            asset.placeholder = assetUrl;
-
-            await prisma.asset.create({
-              data: {
-                projectId: job.projectId,
-                fileName: `${asset.id}.png`,
-                mimeType: 'image/png',
-                sizeBytes: BigInt(cropBuffer.length),
-                storageProvider: 'local',
-                storagePath: uploadRes.key,
-                sha256: assetHash,
-                metadata: {
-                  extractedFromAssetId: sourceAsset?.id || null,
-                  role: asset.role,
-                },
-              },
-            });
-            logger.info({ assetId: asset.id, storageKey }, 'Extracted and persisted cropped asset');
-          } catch (uploadErr: any) {
-            logger.warn({ assetId: asset.id, err: uploadErr?.message }, 'Failed to store extracted asset');
-          }
-        }
-
-        // Attempt D: If cropBuffer not available, fallback to sourceAsset storagePath or inline SVG
-        if (!asset.placeholder) {
-          if (sourceAsset?.storagePath) {
-            asset.placeholder = `/storage/${sourceAsset.storagePath}`;
-          } else {
-            const safeLabel = encodeURIComponent(asset.role || asset.id || 'Image');
-            asset.placeholder = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="14">${safeLabel}</text></svg>`;
-          }
-        }
+      if (asset.placeholder || !imageNodes.some((node) => node.assetId === asset.id && !node.url)) continue;
+      const rect = asset.sourceRect;
+      if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) ||
+          rect.x < 0 || rect.y < 0 || rect.width < 1 || rect.height < 1 ||
+          rect.x + rect.width > meta.width || rect.y + rect.height > meta.height) {
+        throw new Error(`Asset ${asset.id} needs a valid sourceRect inside the source image; refusing a guessed crop`);
       }
+      const cropBuffer = await cropAsset(sourceBuffer, rect);
+      const key = `projects/${job.projectId}/assets/${randomUUID()}.png`;
+      await this.saveGeneratedAsset(job.id, key, cropBuffer, 'image/png', {
+        projectId: job.projectId, fileName: `${asset.id}.png`, mimeType: 'image/png',
+        sizeBytes: BigInt(cropBuffer.length), storageProvider: env.STORAGE_PROVIDER,
+        storagePath: key, sha256: computeContentHash(cropBuffer),
+        metadata: { extractedFromAssetId: sourceAsset.id, role: asset.role },
+      });
+      asset.placeholder = `/storage/${key}`;
     }
 
     // 4. Propagate resolved URLs down to all image nodes in the DIR tree
@@ -1060,16 +1010,12 @@ export class ConversionOrchestrator {
             node.url = matching.placeholder;
           }
         }
-        if (!node.url && sourceAsset?.storagePath) {
-          node.url = `/storage/${sourceAsset.storagePath}`;
-        }
-        if (!node.url) {
-          const safeAlt = encodeURIComponent(node.alt || 'Image');
-          node.url = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="14">${safeAlt}</text></svg>`;
-        }
+        if (!node.url) throw new Error(`Image ${node.id} has no resolved source asset`);
       }
-      const children = node.children || node.nodes || node.elements;
-      if (children && Array.isArray(children)) {
+      const children = [...(node.children || node.nodes || node.elements || []),
+        ...(node.tabs || []).flatMap((tab: any) => tab.children || []),
+        ...(node.items || []).flatMap((item: any) => item.children || [])];
+      if (children.length) {
         for (const child of children) {
           updateNodeUrls(child);
         }
@@ -1204,6 +1150,8 @@ export class ConversionOrchestrator {
 
     return {
       passed: true,
+      scope: 'structural',
+      visualComparisonPerformed: false,
       totalPages: dirDoc.pages.length,
       totalSections,
       totalDirNodes,
@@ -1227,16 +1175,42 @@ export class ConversionOrchestrator {
     return count;
   }
 
-  private async updateStatus(jobId: string, status: any, currentStage: any): Promise<void> {
+  private async saveGeneratedAsset(jobId: string, key: string, buffer: Buffer, mime: string, data: Prisma.AssetUncheckedCreateInput) {
+    await this.assertOwnership(jobId);
+    await this.storage.upload(key, buffer, mime);
     try {
-      await prisma.conversionJob.update({
-        where: { id: jobId },
-        data: { status, currentStage, lastHeartbeat: new Date() },
-      });
-    } catch {
-      // Job record might have been deleted concurrently
+      const owner = this.executions.get(jobId)!;
+      return await recordGeneratedAsset(data, { jobId, ...owner });
+    } catch (error) {
+      await this.storage.delete(key).catch((cleanupError) => logger.error({ key, cleanupError }, 'Generated upload cleanup failed'));
+      throw error;
     }
   }
+
+  private async assertOwnership(jobId: string): Promise<void> {
+    const owner = this.executions.get(jobId);
+    if (!owner) return;
+    const job = await prisma.conversionJob.findFirst({ where: {
+      id: jobId, workerId: owner.workerId, attempts: owner.attempt,
+      leaseExpiresAt: { gt: new Date() }, status: { notIn: ['cancelled', 'failed', 'published'] },
+    } });
+    if (!job) throw new Error('Conversion lease lost; execution stopped');
+  }
+
+  private async updateOwned(jobId: string, data: Prisma.ConversionJobUpdateManyMutationInput): Promise<void> {
+    const owner = this.executions.get(jobId);
+    if (!owner) throw new Error('No execution owns this job');
+    const updated = await prisma.conversionJob.updateMany({ where: {
+      id: jobId, workerId: owner.workerId, attempts: owner.attempt,
+      leaseExpiresAt: { gt: new Date() }, status: { notIn: ['cancelled', 'failed', 'published'] },
+    }, data });
+    if (updated.count !== 1) throw new Error('Conversion lease lost; refusing to overwrite the job');
+  }
+
+  private async updateStatus(jobId: string, status: any, currentStage: any): Promise<void> {
+    await this.updateOwned(jobId, { status, currentStage, lastHeartbeat: new Date() });
+  }
+
 }
 
 let orchestratorInstance: ConversionOrchestrator | null = null;

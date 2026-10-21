@@ -56,10 +56,10 @@ class ConversionWorker {
             "leaseExpiresAt" = NULL,
             "workerId" = NULL,
             "updatedAt" = NOW()
-        WHERE status NOT IN ('preview_ready', 'published', 'failed', 'cancelled')
+        WHERE status NOT IN ('preview_ready', 'published', 'publishing', 'failed', 'cancelled')
           AND "leaseExpiresAt" IS NOT NULL
           AND "leaseExpiresAt" < NOW()
-          AND attempts >= ${this.maxAttempts};
+          AND attempts >= "maxAttempts";
       `;
       if (recovered > 0) {
         logger.warn({ recoveredCount: recovered }, 'Dead-lettered expired abandoned jobs exceeding max attempts');
@@ -133,6 +133,7 @@ class ConversionWorker {
    */
   public async claimNextJob(): Promise<ClaimedJob | null> {
     try {
+      const activeIds = [...this.activeJobs];
       const result = await prisma.$queryRaw<ClaimedJob[]>`
         WITH next_job AS (
           SELECT id FROM "ConversionJob"
@@ -140,7 +141,7 @@ class ConversionWorker {
             status = 'queued'
             OR status = 'retrying'
             OR (
-              status NOT IN ('preview_ready', 'published', 'failed', 'cancelled')
+              status NOT IN ('preview_ready', 'published', 'publishing', 'failed', 'cancelled')
               AND "leaseExpiresAt" IS NOT NULL
               AND "leaseExpiresAt" < NOW()
             )
@@ -150,7 +151,8 @@ class ConversionWorker {
             OR "leaseExpiresAt" IS NULL
             OR "leaseExpiresAt" < NOW()
           )
-          AND attempts < ${this.maxAttempts}
+          AND attempts < "maxAttempts"
+          AND NOT (id = ANY(${activeIds}::text[]))
           ORDER BY "createdAt" ASC
           LIMIT 1
           FOR UPDATE SKIP LOCKED
@@ -182,14 +184,14 @@ class ConversionWorker {
   /**
    * Heartbeat mechanism: periodically extend the lease while processing
    */
-  private startHeartbeat(jobId: string): void {
+  private startHeartbeat(jobId: string, attempt: number): void {
     const timer = setInterval(async () => {
       try {
         await prisma.$executeRaw`
           UPDATE "ConversionJob"
           SET "lastHeartbeat" = NOW(),
               "leaseExpiresAt" = NOW() + INTERVAL '3 minutes'
-          WHERE id = ${jobId} AND "workerId" = ${this.workerId};
+          WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND attempts = ${attempt};
         `;
         logger.debug({ jobId, workerId: this.workerId }, 'Heartbeat pulse sent');
       } catch (err) {
@@ -213,7 +215,7 @@ class ConversionWorker {
    */
   public async processJobAsync(job: ClaimedJob): Promise<void> {
     const jobId = job.id;
-    this.startHeartbeat(jobId);
+    this.startHeartbeat(jobId, job.attempts);
     const startTime = Date.now();
 
     logger.info(
@@ -235,7 +237,7 @@ class ConversionWorker {
             "leaseExpiresAt" = NULL,
             "workerId" = NULL,
             "updatedAt" = NOW()
-        WHERE id = ${jobId};
+        WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND attempts = ${job.attempts};
       `;
 
       const durationMs = Date.now() - startTime;
@@ -244,7 +246,7 @@ class ConversionWorker {
       const errorMessage = err instanceof Error ? err.message : 'Unknown stage error';
       logger.error({ jobId, err, attempt: job.attempts }, `Error during processing job ${jobId}: ${errorMessage}`);
 
-      await this.handleJobError(jobId, job.attempts, errorMessage, err);
+      await this.handleJobError(jobId, job.attempts, errorMessage, err, job.maxAttempts);
     } finally {
       this.stopHeartbeat(jobId);
       this.activeJobs.delete(jobId);
@@ -255,14 +257,15 @@ class ConversionWorker {
     jobId: string,
     currentAttempt: number,
     errorMessage: string,
-    errorDetails: unknown
+    errorDetails: unknown,
+    maxAttempts = this.maxAttempts
   ): Promise<void> {
     const detailsJson = JSON.stringify({
       error: errorMessage,
       details: errorDetails instanceof Error ? errorDetails.stack : errorDetails,
     });
 
-    if (currentAttempt < this.maxAttempts) {
+    if (currentAttempt < maxAttempts) {
       // Exponential backoff retry: schedule for retry
       logger.warn(
         { jobId, currentAttempt, maxAttempts: this.maxAttempts },
@@ -275,11 +278,12 @@ class ConversionWorker {
           SET status = 'retrying',
               "errorMessage" = ${errorMessage},
               "errorDetails" = ${detailsJson}::jsonb,
-              "lockedAt" = NULL,
-              "leaseExpiresAt" = NULL,
+              "lockedAt" = NOW(),
+              "leaseExpiresAt" = NOW() + (${Math.min(60, 2 ** currentAttempt)} * INTERVAL '1 second'),
               "workerId" = NULL,
               "updatedAt" = NOW()
-          WHERE id = ${jobId};
+          WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND attempts = ${currentAttempt}
+            AND status NOT IN ('preview_ready', 'published', 'publishing', 'failed', 'cancelled');
         `;
       } catch (err) {
         logger.error({ jobId, err }, 'Failed to set job status to retrying');
@@ -301,7 +305,8 @@ class ConversionWorker {
               "leaseExpiresAt" = NULL,
               "workerId" = NULL,
               "updatedAt" = NOW()
-          WHERE id = ${jobId};
+          WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND attempts = ${currentAttempt}
+            AND status NOT IN ('preview_ready', 'published', 'publishing', 'failed', 'cancelled');
         `;
       } catch (err) {
         logger.error({ jobId, err }, 'Failed to set job status to failed');
@@ -339,7 +344,7 @@ class ConversionWorker {
                 "leaseExpiresAt" = NULL,
                 "workerId" = NULL,
                 status = 'queued'
-            WHERE id = ${jobId} AND "workerId" = ${this.workerId};
+            WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND status NOT IN ('preview_ready', 'published', 'failed', 'cancelled');
           `;
         } catch {
           // Ignore error during forced shutdown

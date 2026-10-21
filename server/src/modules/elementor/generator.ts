@@ -85,6 +85,7 @@ export class ElementorGenerator {
     this.explicitResponsiveCount = 0;
     this.inferredResponsiveCount = 0;
 
+    if (dir.pages.length !== 1) throw new Error('Conversion accepts exactly one page per screenshot');
     const page = dir.pages[0];
     const content: ElementorElement[] = [];
 

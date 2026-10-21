@@ -98,6 +98,10 @@ export class MockMCPServer {
   public getDefaultTools(): MCPTool[] {
     return [
       {
+        name: 'dte_get_publish_result', description: 'Read a saved publication receipt',
+        inputSchema: { type: 'object', properties: { idempotency_key: { type: 'string' } }, required: ['idempotency_key'] },
+      },
+      {
         name: 'wp_create_post',
         description: 'Create a new WordPress post or page',
         inputSchema: {
@@ -197,6 +201,11 @@ export class MockMCPServer {
           },
           required: ['id'],
         },
+      },
+      {
+        name: 'elementor_get_page_structure',
+        description: 'Read saved Elementor content and page settings',
+        inputSchema: { type: 'object', properties: { page_id: { type: 'number' } }, required: ['page_id'] },
       },
       {
         name: 'elementor_get_info',
@@ -336,6 +345,7 @@ export class MockMCPServer {
           result: {
             protocolVersion: '2024-11-05',
             capabilities: {
+              idempotentPublishing: true,
               tools: { listChanged: true },
               resources: {},
             },
@@ -436,7 +446,14 @@ export class MockMCPServer {
     args: Record<string, unknown>
   ): Promise<MCPToolResult> {
     switch (name) {
+      case 'dte_get_publish_result': {
+        const post = [...this.posts.values()].find((item) => item.meta_input._dte_idempotency_key === args.idempotency_key);
+        return { content: [], structuredData: post ? { state: 'completed', result: { id: post.id, url: post.permalink, status: post.status },
+          elements: post.elementor_data, page_settings: post.meta_input._elementor_page_settings || {} } : { state: 'missing' } };
+      }
       case 'wp_create_post': {
+        const prior = args.idempotency_key ? [...this.posts.values()].find((post) => post.meta_input._dte_idempotency_key === args.idempotency_key) : undefined;
+        if (prior) return { content: [], structuredData: { id: prior.id, url: prior.permalink, status: prior.status } };
         if (this.mode === 'duplicate') {
           return {
             isError: true,
@@ -457,7 +474,7 @@ export class MockMCPServer {
         const status = String(args.status || 'draft');
         const postType = String(args.post_type || 'post');
         const slug = args.slug ? String(args.slug) : `post-${id}`;
-        const metaInput = (args.meta_input as Record<string, unknown>) || {};
+        const metaInput: Record<string, unknown> = { ...((args.meta_input as Record<string, unknown>) || {}), _dte_idempotency_key: args.idempotency_key };
         const permalink = `https://mock.elementor.local/${slug}/`;
 
         const newPost: MockPost = {
@@ -579,6 +596,12 @@ export class MockMCPServer {
           ],
           isError: false,
         };
+      }
+
+      case 'elementor_get_page_structure': {
+        const post = this.posts.get(Number(args.page_id));
+        if (!post) return { isError: true, content: [{ type: 'text', text: 'Post not found' }] };
+        return { content: [], structuredData: { page_id: post.id, elements: post.elementor_data, page_settings: post.meta_input._elementor_page_settings || {} } };
       }
 
       case 'elementor_set_post_data': {

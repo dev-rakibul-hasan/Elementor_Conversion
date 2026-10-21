@@ -190,27 +190,29 @@ export interface PublishPayload {
   resourceType: 'page' | 'template';
   title: string;
   mode: 'draft' | 'publish';
+  confirmPublish: true;
 }
 
 export interface PublishResult {
-  remoteId: string | number;
-  remoteUrl: string;
-  status: 'draft' | 'publish';
-  verified: boolean;
+  success: boolean;
+  error?: string;
+  remoteId?: string | number;
+  remoteUrl?: string;
+  status: 'draft' | 'publish' | 'failed' | 'pending';
+  verified?: boolean;
   message?: string;
 }
 
 export interface SiteCapabilities {
-  wordpressVersion: string;
-  elementorVersion: string;
-  isPro: boolean;
-  isMcpAvailable: boolean;
-  supportedTools: string[];
-  permissions: {
-    canCreatePages: boolean;
-    canUploadMedia: boolean;
-    canManageElementor: boolean;
-  };
+  wordpressVersion?: string;
+  elementorVersion?: string;
+  supportsIdempotency?: boolean;
+  canCreatePage: boolean;
+  canUpdatePage: boolean;
+  canPublishPage: boolean;
+  canCreateTemplate: boolean;
+  canUploadMedia: boolean;
+  availableTools: Array<{ name: string; description: string }>;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -263,10 +265,12 @@ export const api = {
     uploadImage: async (
       file: File,
       projectName?: string,
-      onProgress?: (progressPercent: number) => void
+      onProgress?: (progressPercent: number) => void,
+      description?: string
     ): Promise<{ project: Project; job: ConversionJobWithStages; asset: Asset }> => {
       const formData = new FormData();
       formData.append('image', file);
+      if (description?.trim()) formData.append('description', description.trim());
       if (projectName) {
         formData.append('name', projectName);
       }
@@ -300,11 +304,11 @@ export const api = {
       const res = await apiClient.get<ApiResponse<ConversionJobWithStages | null>>(`/projects/${projectId}/job`);
       return res.data.data;
     },
-    getDir: async (jobId: string): Promise<Record<string, unknown>> => {
+    getDir: async (jobId: string): Promise<Record<string, unknown> | null> => {
       const res = await apiClient.get<ApiResponse<Record<string, unknown>>>(`/jobs/${jobId}/dir`);
       return res.data.data;
     },
-    getElementor: async (jobId: string): Promise<Record<string, unknown>> => {
+    getElementor: async (jobId: string): Promise<Record<string, unknown> | null> => {
       const res = await apiClient.get<ApiResponse<Record<string, unknown>>>(`/jobs/${jobId}/elementor`);
       return res.data.data;
     },
@@ -314,8 +318,8 @@ export const api = {
       );
       return res.data.data;
     },
-    retry: async (jobId: string, fromStage?: StageName): Promise<ConversionJobWithStages> => {
-      const res = await apiClient.post<ApiResponse<ConversionJobWithStages>>(`/jobs/${jobId}/retry`, { fromStage });
+    retry: async (jobId: string): Promise<ConversionJobWithStages> => {
+      const res = await apiClient.post<ApiResponse<ConversionJobWithStages>>(`/jobs/${jobId}/retry`, {});
       return res.data.data;
     },
     cancel: async (jobId: string): Promise<ConversionJobWithStages> => {
@@ -355,8 +359,8 @@ export const api = {
       const res = await apiClient.delete<ApiResponse<{ success: boolean }>>(`/sites/${id}`);
       return res.data.data;
     },
-    test: async (id: string): Promise<{ isMcpAvailable: boolean; message: string }> => {
-      const res = await apiClient.post<ApiResponse<{ isMcpAvailable: boolean; message: string }>>(`/sites/${id}/test`);
+    test: async (id: string): Promise<{ ok: boolean; message: string }> => {
+      const res = await apiClient.post<ApiResponse<{ ok: boolean; message: string }>>(`/sites/${id}/test`);
       return res.data.data;
     },
     capabilities: async (id: string): Promise<SiteCapabilities> => {
@@ -373,33 +377,4 @@ export const api = {
     },
   },
 
-  // Usage & Settings
-  usage: {
-    summary: async (): Promise<UsageSummary> => {
-      const res = await apiClient.get<ApiResponse<UsageSummary>>('/usage/summary');
-      return res.data.data;
-    },
-    history: async (): Promise<UsageSummary['recentActivity']> => {
-      const res = await apiClient.get<ApiResponse<UsageSummary['recentActivity']>>('/usage/history');
-      return res.data.data;
-    },
-    updateConfig: async (config: {
-      mode: 'economy' | 'balanced' | 'quality';
-      visionModel?: string;
-      conversionModel?: string;
-    }): Promise<{ success: boolean; config: unknown }> => {
-      const res = await apiClient.post<ApiResponse<{ success: boolean; config: unknown }>>('/settings/config', config);
-      return res.data.data;
-    },
-    getConfig: async (): Promise<{
-      mode: 'economy' | 'balanced' | 'quality';
-      providers: Record<string, { configured: boolean; model: string }>;
-    }> => {
-      const res = await apiClient.get<ApiResponse<{
-        mode: 'economy' | 'balanced' | 'quality';
-        providers: Record<string, { configured: boolean; model: string }>;
-      }>>('/settings/config');
-      return res.data.data;
-    },
-  },
 };

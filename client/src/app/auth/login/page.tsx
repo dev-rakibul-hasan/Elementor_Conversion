@@ -115,6 +115,7 @@ export default function LoginPage() {
                   </Button>
                 </form>
 
+                {process.env.NODE_ENV !== 'production' && (<>
                 <div className="relative my-4">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-border" />
@@ -136,6 +137,8 @@ export default function LoginPage() {
                 >
                   1-Click Quick Dev Login
                 </Button>
+
+                </>)}
 
                 <div className="text-center text-xs text-muted-foreground pt-2">
                   Don&apos;t have an account?{' '}

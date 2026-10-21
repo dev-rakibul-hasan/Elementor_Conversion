@@ -6,7 +6,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { AuthError, ValidationError } from '../lib/errors.js';
+import { AuthError, ValidationError, NotFoundError } from '../lib/errors.js';
+import { env } from '../config/index.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 
 export const authRouter = Router();
@@ -89,13 +90,11 @@ authRouter.post('/login', async (req: Request, res: Response, next: NextFunction
 // Dev/Quick Login endpoint for seamless local development
 authRouter.post('/dev-login', async (_req: Request, res: Response, next: NextFunction) => {
   try {
+    if (env.NODE_ENV === 'production') throw new NotFoundError('Endpoint');
     const devEmail =
       process.env.DEV_USER_EMAIL ||
-      (process.env.NODE_ENV === 'test' ? 'developer@elementor.local' : 'safayat011048@gmail.com');
+      'developer@elementor.local';
     let user = await prisma.user.findUnique({ where: { email: devEmail } });
-    if (!user) {
-      user = await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } });
-    }
     if (!user) {
       const defaultHash = await bcrypt.hash('devpassword123', 10);
       user = await prisma.user.create({

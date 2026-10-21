@@ -6,7 +6,10 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
-import { NotFoundError, ValidationError } from '../lib/errors.js';
+import { NotFoundError, ValidationError, AppError } from '../lib/errors.js';
+
+import { synchronizeStorageUsage } from '../modules/storage/accounting.js';
+import { createStorageAdapter } from '../modules/storage/factory.js';
 
 export const projectsRouter = Router();
 projectsRouter.use(requireAuth);
@@ -93,20 +96,43 @@ projectsRouter.get('/:id', async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-projectsRouter.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
+projectsRouter.get('/:id/job', async (req, res, next) => {
   try {
-    const userId = (req as any).user.userId;
     const id = req.params.id as string;
-
-    const project = await prisma.project.findFirst({ where: { id, userId } });
-    if (!project) {
-      throw new NotFoundError('Project not found');
-    }
-
-    await prisma.project.delete({ where: { id } });
-    res.json({ success: true, message: 'Project deleted' });
-  } catch (err) {
-    next(err);
-  }
+    if (!(await prisma.project.findFirst({ where: { id, userId: req.user!.id } }))) throw new NotFoundError('Project');
+    const job = await prisma.conversionJob.findFirst({ where: { projectId: id }, orderBy: { createdAt: 'desc' }, include: { stages: { orderBy: { attempt: 'asc' } } } });
+    res.json({ success: true, data: job });
+  } catch (error) { next(error); }
 });
 
+projectsRouter.delete('/:id', async (req, res, next) => {
+  try {
+    const id = req.params.id as string;
+    const userId = req.user!.id;
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${id} FOR UPDATE`;
+      const project = await tx.project.findFirst({ where: { id, userId } });
+      if (!project) throw new NotFoundError('Project');
+      await tx.$queryRaw`SELECT id FROM "ConversionJob" WHERE "projectId" = ${id} FOR UPDATE`;
+      if (await tx.conversionJob.count({ where: { projectId: id, status: 'publishing' } })) throw new AppError('Wait for publishing to finish before deleting the project', 409, 'JOB_BUSY');
+      await tx.conversionJob.updateMany({ where: { projectId: id, status: { notIn: ['published', 'preview_ready', 'failed', 'cancelled'] } },
+        data: { status: 'cancelled', workerId: null, lockedAt: null, leaseExpiresAt: null } });
+    });
+    // Commit cleanup per file. If storage fails, the remaining records/quota survive for a retry.
+    const assets = await prisma.asset.findMany({ where: { projectId: id } });
+    for (const asset of assets) {
+      await createStorageAdapter({ provider: asset.storageProvider }).delete(asset.storagePath);
+      await prisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+        await tx.asset.deleteMany({ where: { id: asset.id, projectId: id } });
+        await synchronizeStorageUsage(tx, userId);
+      });
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${id} FOR UPDATE`;
+      if (await tx.asset.count({ where: { projectId: id } })) throw new AppError('Project received a new upload during deletion; retry deletion', 409, 'PROJECT_CHANGED');
+      await tx.project.deleteMany({ where: { id, userId } });
+    });
+    res.json({ success: true, data: { success: true }, message: 'Project and stored files deleted' });
+  } catch (error) { next(error); }
+});
