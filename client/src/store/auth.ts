@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { readStorage, writeStorage } from '../lib/browser-storage';
 
 export interface User {
   id: string;
@@ -28,23 +29,23 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setAuth: (user, token) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('dte_token', token);
-      localStorage.setItem('dte_user', JSON.stringify(user));
+      writeStorage('dte_token', token);
+      writeStorage('dte_user', JSON.stringify(user));
     }
     set({ user, token, isAuthenticated: true, isLoading: false });
   },
 
   setUser: (user) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('dte_user', JSON.stringify(user));
+      writeStorage('dte_user', JSON.stringify(user));
     }
     set({ user });
   },
 
   logout: () => {
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('dte_token');
-      localStorage.removeItem('dte_user');
+      writeStorage('dte_token', null);
+      writeStorage('dte_user', null);
     }
     set({ user: null, token: null, isAuthenticated: false, isLoading: false });
   },
@@ -56,11 +57,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
 
     try {
-      const token = localStorage.getItem('dte_token');
-      const userStr = localStorage.getItem('dte_user');
+      const token = readStorage('dte_token');
+      const userStr = readStorage('dte_user');
       const user = userStr ? JSON.parse(userStr) : null;
 
-      if (token && user) {
+      if (token && typeof user?.id === 'string' && typeof user?.email === 'string') {
         set({ user, token, isAuthenticated: true, isLoading: false });
       } else {
         set({ user: null, token: null, isAuthenticated: false, isLoading: false });

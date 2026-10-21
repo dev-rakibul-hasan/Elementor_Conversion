@@ -1,13 +1,13 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { randomUUID } from 'node:crypto';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, getAuthenticatedUserId } from '../middleware/auth.js';
 import { uploadMiddleware } from '../middleware/upload.js';
-import { validateImage, getImageMetadata, computeContentHash } from '../modules/storage/image-processor.js';
+import { validateImage, getImageMetadata, computeContentHash, normalizeImageOrientation } from '../modules/storage/image-processor.js';
 import type { StorageAdapter } from '../modules/storage/types.js';
 import { getStorage } from '../modules/storage/factory.js';
 import { reserveStorage } from '../modules/storage/accounting.js';
-import { NotFoundError, ValidationError } from '../lib/errors.js';
+import { NotFoundError, ValidationError, AppError } from '../lib/errors.js';
 import { env } from '../config/index.js';
 import { logger } from '../lib/logger.js';
 
@@ -20,13 +20,14 @@ async function processUpload(req: Request, res: Response, next: NextFunction, pr
   let storage: StorageAdapter | undefined;
   try {
     storage = getStorage();
-    const userId = req.user?.id || (req as any).user?.userId;
+    const userId = getAuthenticatedUserId(req);
     const files = req.files as Record<string, Express.Multer.File[]> | undefined;
     const file = req.file || files?.image?.[0] || files?.file?.[0];
     if (!file) throw new ValidationError('No image file provided');
     let validation;
     try { validation = await validateImage(file.buffer); }
     catch (err: any) { throw new ValidationError(`Invalid image upload: ${err.message}`); }
+    file.buffer = await normalizeImageOrientation(file.buffer);
     const metadata = await getImageMetadata(file.buffer);
     const existingId = projectIdParam || req.body?.projectId;
     if (existingId && !(await prisma.project.findFirst({ where: { id: existingId, userId } }))) throw new NotFoundError('Project');
@@ -41,6 +42,7 @@ async function processUpload(req: Request, res: Response, next: NextFunction, pr
         await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
         project = await tx.project.findFirst({ where: { id: projectId, userId } });
         if (!project) throw new NotFoundError('Project');
+        if (project.deletingAt) throw new AppError('Project deletion is in progress; retry deletion to finish cleanup', 409, 'PROJECT_DELETING');
       } else {
         project = await tx.project.create({ data: {
           id: projectId, userId,

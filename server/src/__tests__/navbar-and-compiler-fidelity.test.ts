@@ -97,7 +97,7 @@ describe('Navbar 3-Slot Architecture & Compiler Fidelity Suite', () => {
     expect(normContainer.styles.gap).toBe(24);
 
     // Step B: Compilation to native Elementor JSON
-    const { document, report } = convertDIRToElementor(normalized);
+    const { document } = convertDIRToElementor(normalized);
 
     // Verify valid Elementor structure
     const validation = validateElementor(document);
@@ -109,7 +109,7 @@ describe('Navbar 3-Slot Architecture & Compiler Fidelity Suite', () => {
     const compiledHeading = compiledContainer.elements[0];
 
     expect(compiledContainer.settings.flex_direction).toBe('row');
-    expect(compiledContainer.settings.flex_gap).toEqual({ unit: 'px', size: 24 });
+    expect(compiledContainer.settings.flex_gap).toEqual({ unit: 'px', column: 24, row: 24, isLinked: true });
     expect(compiledContainer.settings.flex_justify_content).toBe('space-between');
     expect(compiledContainer.settings.flex_align_items).toBe('center');
 
@@ -228,7 +228,7 @@ describe('Navbar 3-Slot Architecture & Compiler Fidelity Suite', () => {
     };
 
     const normalized = normalizeDIR(rawDIR) as DIRDocument;
-    const { document, report } = convertDIRToElementor(normalized);
+    const { document } = convertDIRToElementor(normalized);
 
     const validation = validateElementor(document);
     expect(validation.valid).toBe(true);

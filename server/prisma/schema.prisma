@@ -28,6 +28,7 @@ model Project {
   name           String
   description    String?
   sourceImageId  String?
+  deletingAt     DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   assets         Asset[]

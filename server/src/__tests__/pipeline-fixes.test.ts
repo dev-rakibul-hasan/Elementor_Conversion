@@ -76,6 +76,7 @@ describe('Pipeline correctness regressions', () => {
     const unresolved = structuredClone(dir);
     unresolved.assets.forEach((asset) => { delete asset.sourceRect; delete asset.placeholder; });
     const orchestrator = new ConversionOrchestrator();
+    vi.spyOn((orchestrator as any).aiRouter, 'execute').mockResolvedValue({ content: '{"assets":[]}' });
     await expect((orchestrator as any).resolveAndExtractAssets({ id: 'job', projectId: 'project' }, { id: 'source' }, Buffer.from('source'), { width: 100, height: 80 }, unresolved)).rejects.toThrow(/valid sourceRect/);
   });
 

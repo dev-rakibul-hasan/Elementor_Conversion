@@ -343,7 +343,7 @@ const dirNodeSchema: z.ZodType<any> = z.lazy(() =>
       ...baseNodeFields,
       kind: z.literal('progress-bar'),
       value: z.number(),
-      max: z.number().optional(),
+      max: z.number().positive().optional(),
       label: z.string().optional(),
     }).strict(),
     // Tabs
@@ -369,7 +369,7 @@ const dirNodeSchema: z.ZodType<any> = z.lazy(() =>
       ...baseNodeFields,
       kind: z.literal('rating'),
       value: z.number(),
-      max: z.number().optional(),
+      max: z.union([z.literal(5), z.literal(10)]).optional(),
     }).strict(),
     // Badge
     z.object({

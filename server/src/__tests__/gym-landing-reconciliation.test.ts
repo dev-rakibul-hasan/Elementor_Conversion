@@ -129,7 +129,7 @@ describe('Master Skill Reconciliation — Gym Landing & Visual Fidelity Suite', 
       isLinked: true,
     });
     expect(circleContainer.settings.width).toEqual({ unit: 'px', size: 140 });
-    expect(circleContainer.settings.custom_height).toEqual({ unit: 'px', size: 140, sizes: [] });
+    expect(circleContainer.settings.min_height).toEqual({ unit: 'px', size: 140, sizes: [] });
     expect(circleContainer.settings.flex_justify_content).toBe('center');
     expect(circleContainer.settings.flex_align_items).toBe('center');
 
@@ -261,8 +261,8 @@ describe('Master Skill Reconciliation — Gym Landing & Visual Fidelity Suite', 
     expect(report.widgetsUsed).toContain('image');
 
     const heroSection = document.content[0];
-    expect(heroSection.settings.height).toBe('min-height');
-    expect(heroSection.settings.custom_height).toEqual({ unit: 'px', size: 600, sizes: [] });
+    expect(heroSection.settings.height).toBeUndefined();
+    expect(heroSection.settings.min_height).toEqual({ unit: 'px', size: 600, sizes: [] });
 
     // Heading validation
     const heading = heroSection.elements[0];
@@ -290,10 +290,10 @@ describe('Master Skill Reconciliation — Gym Landing & Visual Fidelity Suite', 
     const imgWidget = heroSection.elements[2];
     expect(imgWidget.settings.image.url).toBe('/storage/projects/test/assets/asset_hero_athlete_12345678.png');
     expect(imgWidget.settings.alt_text).toBe('Pro Athlete Training');
-    expect(imgWidget.settings.caption).toBe('Pro Athlete Training');
+    expect(imgWidget.settings.caption).toBeUndefined();
     expect(imgWidget.settings.width).toEqual({ unit: 'px', size: 450 });
     expect(imgWidget.settings.height).toEqual({ unit: 'px', size: 550 });
-    expect(imgWidget.settings.image_fit).toBe('cover');
+    expect(imgWidget.settings['object-fit']).toBe('cover');
   });
 
   it('3. Reconciled ELEMENTOR_SKILL.md contains Section 11 and Master Builder rules', () => {

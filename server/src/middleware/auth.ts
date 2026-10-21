@@ -110,3 +110,15 @@ export function signToken(
   };
   return jwt.sign(tokenPayload, env.JWT_SECRET, { expiresIn } as jwt.SignOptions);
 }
+
+/**
+ * Safely extracts the authenticated user ID from the request.
+ * Throws AuthError if the user is unauthenticated or has no ID.
+ */
+export function getAuthenticatedUserId(req: Request): string {
+  const userId = req.user?.id || req.user?.userId;
+  if (!userId) {
+    throw new AuthError('Authentication required', 401, 'UNAUTHORIZED');
+  }
+  return userId;
+}

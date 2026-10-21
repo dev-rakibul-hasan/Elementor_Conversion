@@ -9,7 +9,7 @@
 import { loadRootSkillInstructions } from '../elementor/serializer.js';
 
 export const PROMPT_VERSIONS = {
-  IMAGE_ANALYSIS: 'v2.2.0',
+  IMAGE_ANALYSIS: 'v2.3.0',
   ELEMENTOR_CONVERSION: 'v2.0.0',
   ELEMENTOR_SELF_HEALING: 'v1.0.0',
   DIR_REPAIR: 'v1.1.0',
@@ -57,7 +57,7 @@ export function getImageAnalysisPrompt(
   ].join(', ');
 
   const tilingContext = imageInfo.isTiled
-    ? `TILING CONTEXT: This is vertical slice ${imageInfo.tileIndex ?? 0 + 1} of ${imageInfo.totalTiles ?? 1} with an overlap of ${imageInfo.overlapY ?? 0}px. Identify sections within this slice and note partial sections near top/bottom boundaries.`
+    ? `TILING CONTEXT: This is vertical slice ${(imageInfo.tileIndex ?? 0) + 1} of ${imageInfo.totalTiles ?? 1} with an overlap of ${imageInfo.overlapY ?? 0}px. Identify sections within this slice and note partial sections near top/bottom boundaries.`
     : `SINGLE IMAGE: This is the full webpage screenshot (${imageInfo.width}x${imageInfo.height}px). Analyze the full vertical hierarchy.`;
 
   const systemPrompt = `You are an expert design-to-code vision system specialized in website layout understanding.
@@ -65,6 +65,17 @@ Prompt Version: ${version}
 
 Your task is to analyze the provided webpage screenshot and generate a Design Intermediate Representation (DIR) JSON document.
 Output MUST be strict, valid JSON with NO commentary, NO markdown fences, and NO conversational text.
+
+MEASUREMENT AND FIDELITY CONTRACT:
+- Treat the screenshot as evidence, not a request to redesign it. Measure coordinates, font sizes, gaps, widths, line breaks and padding at its original pixel size.
+- sourceRect is in the uploaded image coordinate system. Include the ENTIRE graphic, including its top, bottom, left and right extremities; a valid rectangle inside the canvas is not sufficient if it cuts off the artwork. Cross-check its corners before returning JSON.
+- Do not substitute familiar theme colors or generic 1200px layouts. Choose containerMaxWidth from the visible canvas and content margins; do not exceed the canvas width.
+- Preserve line breaks in heading.text using escaped newline characters. Record all visible text verbatim, including email placeholders; do not replace copy with generic examples.
+- Record the active navigation item's individual color, weight, and underline using its own styles. Keep other links' distinct styles.
+- For inline email signup pills, explicitly give the form direction: "row", alignItems: "center", children: [input, button], and its observed width, padding, gap and radius. Use direction: "column" only for visibly stacked forms.
+- A flex-group requires direction on the node itself. styles.flexDirection is valid; styles.direction is not. Image aspectRatio must be a string such as "1.5".
+- Include observed gradients as styles.backgroundGradient (CSS linear-gradient syntax); do not collapse them into a generic solid color.
+- analysisTimestamp is supplied by the server. Do not generate one.
 
 1. CANVAS ISOLATION RULE (MANDATORY):
 - Uploaded design images often contain an outer presentation background (e.g. solid pastel blue/grey, desk wallpaper), a device frame (laptop bezel, browser window mockup with fake tabs/dots, tablet frame), or drop shadows around a card.
@@ -85,8 +96,8 @@ STAGE A (PERCEPTION) vs STAGE B (CANONICAL DIR):
 - STAGE B: Assemble these observations into a strict DIRDocument v1.0.0.
 - When responsive behavior is observed or inferred (e.g. multi-column desktops reflowing to stacked mobile columns), you may supply optional "responsiveOverrides" on any node or section:
   "responsiveOverrides": {
-    "tablet": { "direction": "column", "fontSize": 32 },
-    "mobile": { "direction": "column", "fontSize": 24, "padding": { "top": 16, "bottom": 16, "left": 16, "right": 16 } }
+    "tablet": { "flexDirection": "column", "fontSize": 32 },
+    "mobile": { "flexDirection": "column", "fontSize": 24, "padding": { "top": 16, "bottom": 16, "left": 16, "right": 16 } }
   }
 
 DIR SCHEMA REQUIREMENTS:
@@ -106,11 +117,10 @@ DIR SCHEMA REQUIREMENTS:
        "sourceHeight": ${imageInfo.height},
        "analysisProvider": "ai",
        "analysisModel": "vision",
-       "analysisTimestamp": "${new Date().toISOString()}",
        "confidenceScore": <number between 0.0 and 1.0>,
        "schemaVersion": "1.0.0",
        "promptVersion": "${version}",
-       "notes": [<string>]
+       "notes": [<string describing uncertainty>]
      }
    - "breakpoints": {
        "desktop": { "min": 1024 },

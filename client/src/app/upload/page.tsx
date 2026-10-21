@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useDropzone } from 'react-dropzone';
@@ -12,6 +12,7 @@ import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { api } from '../../lib/api';
 import { useAuthStore } from '../../store/auth';
+import { readStorage } from '../../lib/browser-storage';
 import toast from 'react-hot-toast';
 import {
   UploadCloud,
@@ -38,13 +39,15 @@ export default function UploadPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quickLoginLoading, setQuickLoginLoading] = useState(false);
 
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: {
       'image/png': ['.png'],
       'image/jpeg': ['.jpg', '.jpeg'],
-      'image/webp': ['.webp'],
     },
     maxFiles: 1,
+    onDropRejected: () => toast.error('Select one PNG or JPEG image.'),
     onDrop: (acceptedFiles) => {
       if (acceptedFiles.length > 0) {
         const file = acceptedFiles[0];
@@ -86,7 +89,7 @@ export default function UploadPage() {
     }
 
     // Auto-login with dev user if guest
-    const storedToken = typeof window !== 'undefined' ? localStorage.getItem('dte_token') : null;
+    const storedToken = useAuthStore.getState().token || readStorage('dte_token');
     if (!storedToken && process.env.NODE_ENV === 'production') {
       toast.error('Please sign in before uploading designs');
       router.push('/auth/login');
@@ -118,7 +121,6 @@ export default function UploadPage() {
   const handleClearImage = (e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedFile(null);
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
   };
 
@@ -258,7 +260,7 @@ export default function UploadPage() {
                           {isDragActive ? 'Release to drop screenshot here' : 'Drop your mockup here, or browse files'}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Supports PNG, JPG, JPEG, or WebP (Full-height landing pages supported up to 500MB)
+                          Supports PNG, JPG and JPEG (Full-height landing pages supported)
                         </p>
                       </div>
                     )}
@@ -282,6 +284,7 @@ export default function UploadPage() {
                         <span>Scrollable tall container</span>
                       </div>
                       <div className="max-h-80 overflow-y-auto p-4 flex justify-center bg-card">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={previewUrl}
                           alt="Screenshot preview"

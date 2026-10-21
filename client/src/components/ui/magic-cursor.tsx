@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { motion, useMotionValue, useSpring } from 'framer-motion';
 
 /**
@@ -12,6 +12,12 @@ import { motion, useMotionValue, useSpring } from 'framer-motion';
  * - Hides itself over text inputs/areas (native caret is better there)
  * - Disabled entirely on touch/coarse-pointer devices
  */
+const cursorQueries = ['(pointer: fine)', '(prefers-reduced-motion: reduce)'];
+function subscribeCursor(notify: () => void) {
+  const queries = cursorQueries.map((query) => window.matchMedia(query));
+  queries.forEach((query) => query.addEventListener('change', notify));
+  return () => queries.forEach((query) => query.removeEventListener('change', notify));
+}
 export function MagicCursor() {
   const mouseX = useMotionValue(-100);
   const mouseY = useMotionValue(-100);
@@ -22,23 +28,21 @@ export function MagicCursor() {
   const ringX = useSpring(mouseX, { stiffness: 350, damping: 28, mass: 0.5 });
   const ringY = useSpring(mouseY, { stiffness: 350, damping: 28, mass: 0.5 });
 
-  const [enabled, setEnabled] = useState(false);
+  const enabled = useSyncExternalStore(subscribeCursor,
+    () => window.matchMedia(cursorQueries[0]).matches && !window.matchMedia(cursorQueries[1]).matches, () => false);
   const [hovering, setHovering] = useState(false);
   const [pressing, setPressing] = useState(false);
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
     // Only enable on fine pointers (mice) — skip touch devices
-    const finePointer = window.matchMedia('(pointer: fine)').matches;
-    const noReducedMotion = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!finePointer || !noReducedMotion) return;
-    setEnabled(true);
+    if (!enabled) return;
     // Hide the native cursor across the app
     document.documentElement.classList.add('magic-cursor-active');
     return () => {
       document.documentElement.classList.remove('magic-cursor-active');
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;

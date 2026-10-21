@@ -64,7 +64,7 @@ const ALLOWED_NODE_KEYS_BY_KIND: Record<string, Set<string>> = {
  */
 export function parseNumeric(val: unknown): number | undefined {
   if (typeof val === 'number') {
-    return isNaN(val) ? undefined : val;
+    return Number.isFinite(val) ? val : undefined;
   }
   if (typeof val === 'string') {
     const trimmed = val.trim();
@@ -87,6 +87,12 @@ export function normalizeStyles(rawStyles: unknown): Record<string, any> {
   }
 
   const s = { ...(rawStyles as Record<string, any>) };
+
+  // Canonical CSS alias used by some vision responses.
+  if (s.direction === 'row' || s.direction === 'column') {
+    if (s.flexDirection === undefined) s.flexDirection = s.direction;
+    delete s.direction;
+  }
 
   // 1. Explicitly numeric scalar properties
   const numericFields = [
@@ -234,7 +240,11 @@ export function normalizeNode(rawNode: unknown): any {
     : parseNumeric(node.confidence) ?? 0.9;
 
   // Extract styles properties before normalizing styles
-  const rawStyles = node.styles && typeof node.styles === 'object' ? node.styles : {};
+  const rawStyles = node.styles && typeof node.styles === 'object' ? { ...node.styles } : {};
+  if (node.direction === undefined) {
+    const observedDirection = rawStyles.flexDirection ?? rawStyles.direction;
+    if (observedDirection === 'row' || observedDirection === 'column') node.direction = observedDirection;
+  }
 
   // Map typography from DIR schema (preserving observed font size, weight, color, alignment)
   if (node.typography && typeof node.typography === 'object' && !Array.isArray(node.typography)) {
@@ -365,6 +375,9 @@ export function normalizeNode(rawNode: unknown): any {
 
   // 2. Image: objectFit, width, height, seed
   if (node.kind === 'image') {
+    if (typeof node.aspectRatio === 'number' && node.aspectRatio > 0) {
+      node.aspectRatio = String(node.aspectRatio);
+    }
     if (!node.objectFit && rawStyles.objectFit) {
       const fit = String(rawStyles.objectFit).toLowerCase();
       if (['cover', 'contain', 'fill', 'none'].includes(fit)) {
@@ -513,6 +526,13 @@ export function normalizeNode(rawNode: unknown): any {
     node.children = node.children.map(normalizeNode);
   } else if (['container', 'flex-group', 'grid-group', 'card', 'form'].includes(node.kind)) {
     node.children = [];
+  }
+  for (const key of ['tabs', 'items']) {
+    if (Array.isArray(node[key])) {
+      node[key] = node[key].map((item: any) => item && typeof item === 'object'
+        ? { ...item, ...(Array.isArray(item.children) ? { children: item.children.map(normalizeNode) } : {}) }
+        : item);
+    }
   }
 
   // Prune any unrecognized keys for this node kind to guarantee strict schema conformance

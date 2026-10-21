@@ -39,13 +39,19 @@ export class LocalStorageAdapter implements StorageAdapter {
       throw new StorageError('Invalid storage key: key must be a non-empty string');
     }
 
+    // Strip leading slashes to prevent root-relative or drive-root resolution on POSIX/Windows
+    const sanitizedKey = key.replace(/^[\\/]+/, '');
+    if (!sanitizedKey) {
+      throw new StorageError('Invalid storage key: key must not be root or empty');
+    }
+
     // Resolve base path and target file path
     const resolvedBase = path.resolve(this.baseDir);
-    const resolvedPath = path.resolve(resolvedBase, key);
+    const resolvedPath = path.resolve(resolvedBase, sanitizedKey);
 
     // Verify target path is strictly within the designated storage root
     const relative = path.relative(resolvedBase, resolvedPath);
-    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
       logger.warn({ key, resolvedPath, resolvedBase }, 'Path traversal attempt detected in storage adapter');
       throw new StorageError(`Path traversal attempt detected for storage key: ${key}`);
     }

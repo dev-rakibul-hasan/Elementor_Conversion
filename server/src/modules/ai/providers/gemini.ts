@@ -178,7 +178,7 @@ export class GeminiAdapter implements AIProviderAdapter {
 
     // 3. If it's an HTTP/HTTPS URL, download it
     if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      const res = await fetch(imageUrl);
+      const res = await fetch(imageUrl, { signal: AbortSignal.timeout(this.defaultTimeoutMs) });
       if (!res.ok) {
         throw new Error(`Failed to fetch image from URL: ${imageUrl} (${res.status})`);
       }
@@ -291,12 +291,7 @@ export class GeminiAdapter implements AIProviderAdapter {
       );
     }
 
-    const configuredModel =
-      process.env.GEMINI_MODEL ||
-      env.GEMINI_MODEL ||
-      this.defaultModel ||
-      'gemini-3.8-flash';
-    const model = req.modelId || configuredModel;
+    const model = req.modelId || this.defaultModel;
     const timeoutMs = req.timeout || this.defaultTimeoutMs;
     const startTime = Date.now();
 
@@ -431,7 +426,7 @@ export class GeminiAdapter implements AIProviderAdapter {
           if (isQuotaExhausted) {
             const fallbackCandidates = ['gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-lite-latest'];
             const nextCandidate = fallbackCandidates.find((m) => m !== cleanModelName && !triedModels.has(m));
-            if (nextCandidate) {
+            if (nextCandidate && attempt < maxAttempts) {
               logger.warn(
                 { from: cleanModelName, to: nextCandidate, reason: 'Gemini free-tier quota exhausted on model' },
                 'Failing over to alternative healthy Gemini model'
@@ -442,7 +437,6 @@ export class GeminiAdapter implements AIProviderAdapter {
                 this.apiKey
               )}`;
               clearTimeout(timeoutHandle);
-              attempt = 0;
               continue;
             }
           }
@@ -576,7 +570,7 @@ export class GeminiAdapter implements AIProviderAdapter {
         provider: this.name,
         latencyMs,
         cached: false,
-        finishReason: candidate?.finishReason,
+        finishReason: candidate?.finishReason === 'MAX_TOKENS' ? 'length' : candidate?.finishReason?.toLowerCase(),
         raw: data,
       };
     } catch (err: unknown) {

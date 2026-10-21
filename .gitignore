@@ -34,6 +34,9 @@ pnpm-debug.log*
 # Testing & Coverage
 coverage/
 .nyc_output/
+.audit-tools/
+audit-*.json
+audit-artifacts/
 
 # Operating System files
 .DS_Store

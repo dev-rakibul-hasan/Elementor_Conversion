@@ -126,15 +126,12 @@ export class StageAICache {
           if (versionCheck) {
             const schemaMismatch =
               versionCheck.schemaVersion &&
-              record.schemaVersion &&
               versionCheck.schemaVersion !== record.schemaVersion;
             const promptMismatch =
               versionCheck.promptVersion &&
-              record.promptVersion &&
               versionCheck.promptVersion !== record.promptVersion;
             const skillMismatch =
               versionCheck.skillVersion &&
-              record.skillVersion &&
               versionCheck.skillVersion !== record.skillVersion;
 
             if (schemaMismatch || promptMismatch || skillMismatch) {
@@ -315,13 +312,17 @@ export class StageAICache {
   async invalidateByVersion(params: {
     schemaVersion?: string;
     promptVersion?: string;
+    skillVersion?: string;
   }): Promise<number> {
+    const versions = Object.entries(params).filter(([, version]) => !!version);
+    if (!versions.length) return 0;
     let count = 0;
 
     for (const [k, v] of this.memoryCache.entries()) {
       if (
         (params.schemaVersion && v.metadata.schemaVersion !== params.schemaVersion) ||
-        (params.promptVersion && v.metadata.promptVersion !== params.promptVersion)
+        (params.promptVersion && v.metadata.promptVersion !== params.promptVersion) ||
+        (params.skillVersion && v.metadata.skillVersion !== params.skillVersion)
       ) {
         this.memoryCache.delete(k);
         count += 1;
@@ -330,16 +331,10 @@ export class StageAICache {
 
     if (this.isPostgresAvailable) {
       try {
-        const whereClause: Record<string, unknown> = {};
-        if (params.schemaVersion) {
-          whereClause.schemaVersion = { not: params.schemaVersion };
-        }
-        if (params.promptVersion) {
-          whereClause.promptVersion = { not: params.promptVersion };
-        }
-
         const result = await prisma.stageCache.deleteMany({
-          where: whereClause,
+          where: { OR: versions.flatMap(([field, version]) => [
+            { [field]: { not: version } }, { [field]: null },
+          ]) },
         });
         count = Math.max(count, result.count);
       } catch (err) {

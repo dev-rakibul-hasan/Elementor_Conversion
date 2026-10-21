@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import sharp from 'sharp';
+import sharp, { type Metadata } from 'sharp';
 import { fileTypeFromBuffer } from 'file-type';
 import {
   ImageMetadata,
@@ -103,7 +103,7 @@ export async function validateImage(buffer: Buffer): Promise<ImageValidationResu
   }
 
   // 4. Sharp metadata check with decompression bomb protection
-  let metadata: sharp.Metadata;
+  let metadata: Metadata;
   try {
     metadata = await sharp(buffer, {
       failOn: 'truncated',
@@ -165,6 +165,13 @@ export async function getImageMetadata(buffer: Buffer): Promise<ImageMetadata> {
     space: metadata.space,
     hasAlpha: Boolean(metadata.hasAlpha),
   };
+}
+
+/** Make model input, crop coordinates and browser rendering use the same pixel orientation. */
+export async function normalizeImageOrientation(buffer: Buffer): Promise<Buffer> {
+  const image = sharp(buffer, { limitInputPixels: MAX_PIXELS_LIMIT });
+  const metadata = await image.metadata();
+  return metadata.orientation && metadata.orientation !== 1 ? image.rotate().toBuffer() : buffer;
 }
 
 /**
@@ -242,6 +249,9 @@ export async function createTiles(
   tileHeight = 1200,
   overlap = 100
 ): Promise<ImageTile[]> {
+  if (!Number.isInteger(tileHeight) || tileHeight < 1 || !Number.isInteger(overlap) || overlap < 0 || overlap >= tileHeight) {
+    throw new ValidationError('Tile height must be a positive integer and overlap must be between 0 and tile height');
+  }
   const meta = await sharp(buffer, {
     limitInputPixels: MAX_PIXELS_LIMIT,
   }).metadata();
@@ -334,3 +344,75 @@ export async function cropAsset(
     .toBuffer();
 }
 
+
+/**
+ * Expand a clipped composite crop only when a large connected light foreground
+ * on a dark, opaque screenshot supplies measurable bounds. Never shrink a crop
+ * or change a low-contrast/ambiguous image. Work on a bounded raster, not full MP.
+ */
+export async function expandClippedCompositeBounds(
+  sourceBuffer: Buffer,
+  rectangles: Array<{ x: number; y: number; width: number; height: number }>
+): Promise<Array<{ x: number; y: number; width: number; height: number }>> {
+  if (!rectangles.length) return [];
+  const source = sharp(sourceBuffer, { limitInputPixels: MAX_PIXELS_LIMIT });
+  const metadata = await source.metadata();
+  if (!metadata.width || !metadata.height) return rectangles.map((rect) => ({ ...rect }));
+  const { data, info } = await source.resize({ width: 640, height: 640, fit: 'inside', withoutEnlargement: true })
+    .toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width, height, channels } = info;
+  const luminance = (index: number) => 0.2126 * data[index * channels] +
+    0.7152 * data[index * channels + 1] + 0.0722 * data[index * channels + 2];
+  const edge: number[] = [];
+  for (let x = 0; x < width; x++) edge.push(luminance(x), luminance((height - 1) * width + x));
+  for (let y = 0; y < height; y++) edge.push(luminance(y * width), luminance(y * width + width - 1));
+  edge.sort((a, b) => a - b);
+  if (edge[Math.floor(edge.length / 2)] > 80) return rectangles.map((rect) => ({ ...rect }));
+  const mask = new Uint8Array(width * height);
+  for (let index = 0; index < mask.length; index++) {
+    if (data[index * channels + 3] >= 250 && luminance(index) >= 150) mask[index] = 1;
+  }
+  const queue = new Int32Array(mask.length);
+  const components: Array<{ x: number; y: number; width: number; height: number }> = [];
+  for (let seed = 0; seed < mask.length; seed++) {
+    if (!mask[seed]) continue;
+    let head = 0, tail = 1;
+    queue[0] = seed;
+    mask[seed] = 0;
+    let left = width, top = height, right = 0, bottom = 0;
+    while (head < tail) {
+      const index = queue[head++];
+      const x = index % width, y = Math.floor(index / width);
+      left = Math.min(left, x); right = Math.max(right, x);
+      top = Math.min(top, y); bottom = Math.max(bottom, y);
+      const visit = (next: number) => { if (mask[next]) { mask[next] = 0; queue[tail++] = next; } };
+      if (x > 0) visit(index - 1);
+      if (x + 1 < width) visit(index + 1);
+      if (y > 0) visit(index - width);
+      if (y + 1 < height) visit(index + width);
+    }
+    const boxArea = (right - left + 1) * (bottom - top + 1);
+    if (tail < mask.length * 0.015 || tail / boxArea < 0.4 || boxArea > mask.length * 0.5) continue;
+    const x = Math.max(0, Math.floor(left * metadata.width / width) - 2);
+    const y = Math.max(0, Math.floor(top * metadata.height / height) - 2);
+    const endX = Math.min(metadata.width, Math.ceil((right + 1) * metadata.width / width) + 2);
+    const endY = Math.min(metadata.height, Math.ceil((bottom + 1) * metadata.height / height) + 2);
+    components.push({ x, y, width: endX - x, height: endY - y });
+  }
+  return rectangles.map((rect) => {
+    if (![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) || rect.width <= 0 || rect.height <= 0) return { ...rect };
+    const candidates = components.filter((box) => {
+      const overlap = Math.max(0, Math.min(box.x + box.width, rect.x + rect.width) - Math.max(box.x, rect.x)) *
+        Math.max(0, Math.min(box.y + box.height, rect.y + rect.height) - Math.max(box.y, rect.y));
+      return overlap >= rect.width * rect.height * 0.2 && box.width >= rect.width * 0.65 &&
+        box.height >= rect.height * 0.65 && box.width * box.height <= rect.width * rect.height * 4;
+    });
+    // Competing components are ambiguous: do not infer which artwork is intended.
+    if (candidates.length !== 1) return { ...rect };
+    const box = candidates[0];
+    const x = Math.min(rect.x, box.x), y = Math.min(rect.y, box.y);
+    const endX = Math.max(rect.x + rect.width, box.x + box.width);
+    const endY = Math.max(rect.y + rect.height, box.y + box.height);
+    return { x, y, width: endX - x, height: endY - y };
+  });
+}

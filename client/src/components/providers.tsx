@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { useAuthStore } from '../store/auth';
 import { MagicCursor } from './ui/magic-cursor';
 import { ThemeProvider } from './theme-provider';
 
-const queryClient = new QueryClient({
+const createQueryClient = () => new QueryClient({
   defaultOptions: {
     queries: {
       refetchOnWindowFocus: false,
@@ -17,6 +17,9 @@ const queryClient = new QueryClient({
 });
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(createQueryClient);
+  const token = useAuthStore((state) => state.token);
+  useEffect(() => { queryClient.clear(); }, [queryClient, token]);
   useEffect(() => {
     useAuthStore.getState().initialize();
   }, []);

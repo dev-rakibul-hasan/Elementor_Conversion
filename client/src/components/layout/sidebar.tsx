@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -66,10 +68,10 @@ export function Sidebar({ className }: { className?: string }) {
               <Activity className="h-3.5 w-3.5 text-emerald-400" />
               Engine Status
             </span>
-            <Badge variant="success" withDot>Online</Badge>
+            <Badge variant="neutral">Workspace</Badge>
           </div>
           <p className="text-[11px] text-muted-foreground leading-relaxed">
-            MCP WordPress connector active. Multi-model vision pipeline enabled.
+            Test WordPress connections in Settings to check availability.
           </p>
         </div>
       </div>

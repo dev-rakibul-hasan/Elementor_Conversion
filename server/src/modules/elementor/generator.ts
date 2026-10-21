@@ -75,6 +75,8 @@ export class ElementorGenerator {
   }
 
   public convert(dir: DIRDocument): { document: ElementorDocument; report: ConversionReport } {
+    // Compilation and content auditing must never rewrite the stored DIR.
+    dir = structuredClone(dir);
     this.widgetsUsed.clear();
     this.unsupportedFeatures.clear();
     this.warnings = [];
@@ -151,7 +153,8 @@ export class ElementorGenerator {
     this.elementCount++;
 
     const pageBg = dir.globals?.colors?.background || dir.globals?.colors?.surface || '#ffffff';
-    const containerMaxWidth = dir.globals?.spacing?.containerMaxWidth || 1200;
+    const canvasWidth = dir.canvas_bounds?.width || dir.meta?.sourceWidth;
+    const containerMaxWidth = Math.min(dir.globals?.spacing?.containerMaxWidth || canvasWidth || 1200, canvasWidth || 1200);
     const isHeaderOrNav = section.role === 'header' || section.role === 'navigation';
     const isRow =
       section.direction === 'row' ||
@@ -187,9 +190,9 @@ export class ElementorGenerator {
 
       const gap = section.gap ?? (section as any).layout_tree?.gap_px ?? section.styles?.gap;
       if (gap !== undefined) {
-        settings.flex_gap = { unit: 'px', size: gap };
-        settings.flex_gap_tablet = { unit: 'px', size: Math.max(10, Math.round(gap * 0.75)) };
-        settings.flex_gap_mobile = { unit: 'px', size: Math.max(6, Math.round(gap * 0.5)) };
+        settings.flex_gap = this.mapGap(gap);
+        settings.flex_gap_tablet = this.mapGap(Math.max(10, Math.round(gap * 0.75)));
+        settings.flex_gap_mobile = this.mapGap(Math.max(6, Math.round(gap * 0.5)));
       }
 
       if (isHeaderOrNav) {
@@ -224,12 +227,38 @@ export class ElementorGenerator {
     return {
       id: generateElementId(),
       elType: 'container',
+      isInner: false,
       settings,
       elements,
     };
   }
 
-  private convertNode(node: DIRNode, dir: DIRDocument): ElementorElement | null {
+  private convertNode(source: DIRNode, dir: DIRDocument): ElementorElement | null {
+    if (!source) return null;
+    const node: any = { ...source, styles: { ...source.styles } };
+    const typography = dir.globals?.typography;
+    if (['heading', 'text', 'button', 'link', 'input', 'badge'].includes(node.kind)) {
+      node.styles.fontFamily ??= node.kind === 'heading'
+        ? typography?.headingFont || typography?.bodyFont || typography?.fontFamilies?.[0]
+        : typography?.bodyFont || typography?.fontFamilies?.[0];
+    }
+    if (node.kind === 'form') {
+      const details = node.form_details;
+      node.styles.backgroundColor ??= details?.background_hex;
+      node.styles.borderRadius ??= details?.border_radius_px;
+      node.gap ??= details?.field_gap_px;
+      if (!node.direction && !node.styles.flexDirection && !node.layout_tree?.direction &&
+          Array.isArray(node.children) && node.children.some((child: any) => child.kind === 'input') &&
+          node.children.some((child: any) => child.kind === 'button')) {
+        node.direction = 'row';
+      }
+    }
+    const element = this.buildNode(node, dir);
+    if (element?.elType === 'widget') this.applyWidgetBoxStyles(node, element.settings);
+    return element;
+  }
+
+  private buildNode(node: DIRNode, dir: DIRDocument): ElementorElement | null {
     if (!node) return null;
 
     switch ((node as any).kind) {
@@ -324,6 +353,9 @@ export class ElementorGenerator {
       default:
         this.unsupportedFeatures.add(`node_kind:${node.kind}`);
         this.warnings.push(`Fallback applied for node kind: ${node.kind}`);
+        if ('children' in node && Array.isArray(node.children) && node.children.length) {
+          return this.convertContainerNode(node, dir);
+        }
         return this.convertFallbackNode(node);
     }
   }
@@ -336,8 +368,11 @@ export class ElementorGenerator {
     if (
       Array.isArray(node.children) &&
       node.children.length > 0 &&
-      node.children.every((c: any) => c.kind === 'link')
+      node.children.every((c: any) => c.kind === 'link') &&
+      node.children.every((c: any) => JSON.stringify({ styles: c.styles, typography: c.typography }) ===
+        JSON.stringify({ styles: node.children[0].styles, typography: node.children[0].typography }))
     ) {
+      this.containerCount--;
       this.widgetCount++;
       this.widgetsUsed.add('icon-list');
 
@@ -348,7 +383,7 @@ export class ElementorGenerator {
         selected_icon: { value: '', library: '' },
       }));
 
-      const space = node.gap ?? (node.layout_tree?.gap_px || 28);
+      const space = node.gap ?? node.styles?.gap ?? node.layout_tree?.gap_px ?? 28;
       const fontSize = node.children[0]?.styles?.fontSize || (node.children[0] as any)?.typography?.font_size_px || 14;
       const textColor = node.children[0]?.styles?.color || (node.children[0] as any)?.typography?.color_hex || '#b0b8af';
 
@@ -363,7 +398,8 @@ export class ElementorGenerator {
           space_between: { unit: 'px', size: space },
           typography_typography: 'custom',
           typography_font_size: { unit: 'px', size: fontSize },
-          typography_font_weight: '400',
+          typography_font_weight: String(node.children[0]?.styles?.fontWeight || node.children[0]?.typography?.font_weight || 400),
+          ...(dir.globals?.typography?.bodyFont ? { typography_font_family: dir.globals.typography.bodyFont } : {}),
           align_self: 'center',
           _element_width: 'initial',
           _flex_shrink: 0,
@@ -376,6 +412,7 @@ export class ElementorGenerator {
     const isGrid = node.kind === 'grid-group';
     const settings: Record<string, any> = {
       container_type: isGrid ? 'grid' : 'flex',
+      content_width: 'full',
     };
 
     if (isGrid) {
@@ -421,6 +458,11 @@ export class ElementorGenerator {
         'column';
       settings.flex_direction = flexDir;
 
+      const keepInline = node.kind === 'form' ||
+        node.children?.every((child: any) => child.kind === 'link') ||
+        (node.children?.some((child: any) => child.kind === 'image' &&
+          dir.assets.some((asset) => asset.id === child.assetId && asset.type === 'logo')) &&
+         node.children?.every((child: any) => ['image', 'heading', 'text'].includes(child.kind)));
       const isHeaderActions =
         node.label === 'header-actions' ||
         node.label === 'navigation-actions' ||
@@ -436,7 +478,7 @@ export class ElementorGenerator {
           settings.flex_shrink = 0;
           settings._flex_shrink = 0;
           settings._element_width = 'initial';
-        } else {
+        } else if (!keepInline) {
           settings.flex_direction_tablet = 'column';
           settings.flex_direction_mobile = 'column';
           this.inferredResponsiveCount++;
@@ -469,9 +511,9 @@ export class ElementorGenerator {
         node.layout_tree?.gap_px ??
         (node.styles as any)?.gap;
       if (gap !== undefined) {
-        settings.flex_gap = { unit: 'px', size: gap };
-        settings.flex_gap_tablet = { unit: 'px', size: Math.max(10, Math.round(gap * 0.75)) };
-        settings.flex_gap_mobile = { unit: 'px', size: Math.max(6, Math.round(gap * 0.5)) };
+        settings.flex_gap = this.mapGap(gap);
+        settings.flex_gap_tablet = this.mapGap(Math.max(10, Math.round(gap * 0.75)));
+        settings.flex_gap_mobile = this.mapGap(Math.max(6, Math.round(gap * 0.5)));
       }
       if ((node.styles as any)?.alignSelf) {
         settings.align_self = this.mapAlignItems((node.styles as any).alignSelf);
@@ -483,36 +525,6 @@ export class ElementorGenerator {
     if (node.responsiveOverrides) {
       this.applyResponsiveOverrides(node.responsiveOverrides, settings, true);
       this.explicitResponsiveCount++;
-    }
-
-    // Proportional 2-column balancing for split hero / feature rows
-    if (
-      settings.flex_direction === 'row' &&
-      Array.isArray(node.children) &&
-      node.children.length === 2
-    ) {
-      const child0 = node.children[0] as any;
-      const child1 = node.children[1] as any;
-      const isCols =
-        (child0.kind === 'container' || child0.kind === 'flex-group') &&
-        (child1.kind === 'container' || child1.kind === 'flex-group');
-
-      if (isCols) {
-        const c0W = child0.styles?.width;
-        const c1W = child1.styles?.width;
-        const excessivePixel =
-          typeof c0W === 'number' && typeof c1W === 'number' && c0W + c1W > 1400;
-        const missingBoth = !c0W && !c1W;
-        const hasExcessiveSingle =
-          (typeof c0W === 'number' && c0W > 850) || (typeof c1W === 'number' && c1W > 850);
-
-        if (excessivePixel || missingBoth || hasExcessiveSingle) {
-          if (!child0.styles) child0.styles = {};
-          if (!child1.styles) child1.styles = {};
-          child0.styles.width = '55%';
-          child1.styles.width = '45%';
-        }
-      }
     }
 
     // Center-align vertical stat groups (e.g. circle counter badge + label below)
@@ -529,9 +541,22 @@ export class ElementorGenerator {
       }
     }
 
+    if (node.kind === 'form' && settings.flex_direction === 'row') {
+      settings.flex_wrap = 'nowrap';
+      settings.flex_align_items ??= 'center';
+      node.children?.forEach((child: any, index: number) => {
+        if (child.kind === 'input' && elements[index]) {
+          elements[index].settings._flex_grow = 1;
+          elements[index].settings._flex_shrink = 1;
+          elements[index].settings._element_width = 'auto';
+        }
+      });
+    }
+
     return {
       id: generateElementId(),
       elType: 'container',
+      isInner: true,
       settings,
       elements,
     };
@@ -543,7 +568,7 @@ export class ElementorGenerator {
     this.widgetsUsed.add('heading');
 
     const settings: Record<string, any> = {
-      title: node.text || '',
+      title: this.renderHeadingText(node),
       header_size: `h${node.level || 2}`,
     };
 
@@ -589,7 +614,7 @@ export class ElementorGenerator {
         settings.typography_typography = 'custom';
       }
       if (typo.line_height_em && !settings.typography_line_height) {
-        settings.typography_line_height = { unit: 'em', size: typo.line_height_em };
+        settings.typography_line_height = this.mapLineHeight(typo.line_height_em);
         settings.typography_typography = 'custom';
       }
       if (typo.letter_spacing_px !== undefined && !settings.typography_letter_spacing) {
@@ -672,6 +697,7 @@ export class ElementorGenerator {
     };
 
     if (node.styles?.backgroundColor) {
+      settings.background_background = 'classic';
       settings.background_color = node.styles.backgroundColor;
     }
     if ((node as any).variant === 'outline' && !node.styles?.backgroundColor) {
@@ -710,9 +736,9 @@ export class ElementorGenerator {
       }
     }
     if (node.styles?.padding) {
-      settings.button_padding = this.mapSpacing(node.styles.padding);
-      settings.button_padding_tablet = this.mapScaledSpacing(node.styles.padding, 0.8, 0.75);
-      settings.button_padding_mobile = this.mapScaledSpacing(node.styles.padding, 0.65, 0.6, 10);
+      settings.text_padding = this.mapSpacing(node.styles.padding);
+      settings.text_padding_tablet = this.mapScaledSpacing(node.styles.padding, 0.8, 0.75);
+      settings.text_padding_mobile = this.mapScaledSpacing(node.styles.padding, 0.65, 0.6, 10);
       this.inferredResponsiveCount++;
     }
     if (node.styles?.textAlign) {
@@ -787,22 +813,15 @@ export class ElementorGenerator {
     }
 
     if (node.alt) {
-      settings.caption = node.alt;
       settings.alt_text = node.alt;
+      settings.caption_source = 'none';
     }
     if (node.styles?.width) {
       if (typeof node.styles.width === 'number') {
-        if (node.styles.width > 480) {
-          // Large images inside columns scale to 100% of their container
-          settings.width = { unit: '%', size: 100 };
+        settings.width = { unit: 'px', size: node.styles.width };
+        if (node.styles.width > 360) {
           settings.width_tablet = { unit: '%', size: 100 };
           settings.width_mobile = { unit: '%', size: 100 };
-        } else {
-          settings.width = { unit: 'px', size: node.styles.width };
-          if (node.styles.width > 360) {
-            settings.width_tablet = { unit: 'px', size: Math.min(360, node.styles.width) };
-            settings.width_mobile = { unit: '%', size: 100 };
-          }
         }
       } else if (typeof node.styles.width === 'string' && node.styles.width.endsWith('%')) {
         const pct = parseFloat(node.styles.width);
@@ -816,15 +835,12 @@ export class ElementorGenerator {
       settings.border_radius = this.mapBorderRadius(node.styles.borderRadius);
     }
     if (node.styles?.height && typeof node.styles.height === 'number') {
-      // Do not impose rigid fixed pixel heights on large portrait/hero images
-      if (node.styles.height <= 600) {
-        settings.height = { unit: 'px', size: node.styles.height };
-      }
+      settings.height = { unit: 'px', size: node.styles.height };
     }
-    if ((node as any).composite_graphic_asset) {
-      settings.image_fit = 'contain';
+    if (node.composite_graphic_asset || dir.assets?.find((asset) => asset.id === node.assetId)?.composite_graphic_asset) {
+      settings['object-fit'] = 'contain';
     } else if ((node as any).objectFit) {
-      settings.image_fit = (node as any).objectFit;
+      settings['object-fit'] = (node as any).objectFit;
     }
 
     if (node.responsiveOverrides) {
@@ -904,6 +920,9 @@ export class ElementorGenerator {
   }
 
   private convertListNode(node: DIRListNode): ElementorElement {
+    if (node.ordered) return this.convertTextNode({ ...node, kind: 'text',
+      html: `<ol>${node.children.map((item) => `<li>${this.escapeText(item.text)}</li>`).join('')}</ol>`,
+    });
     this.widgetCount++;
     this.elementCount++;
     this.widgetsUsed.add('icon-list');
@@ -941,7 +960,7 @@ export class ElementorGenerator {
       widgetType: 'divider',
       settings: {
         style: 'solid',
-        weight: { unit: 'px', size: node.thickness || 1 },
+        weight: { unit: 'px', size: node.thickness ?? 1 },
         color: node.styles?.borderColor || '#E5E7EB',
       },
       elements: [],
@@ -958,7 +977,7 @@ export class ElementorGenerator {
       elType: 'widget',
       widgetType: 'spacer',
       settings: {
-        space: { unit: 'px', size: node.height || 50 },
+        space: { unit: 'px', size: node.height ?? 50 },
       },
       elements: [],
     };
@@ -969,7 +988,7 @@ export class ElementorGenerator {
     this.elementCount++;
     this.widgetsUsed.add('counter');
 
-    let endingNumber = node.value || 100;
+    let endingNumber = node.value ?? 100;
     let suffix = node.suffix || '';
     if (endingNumber >= 1000 && endingNumber % 1000 === 0 && !suffix) {
       endingNumber = endingNumber / 1000;
@@ -1029,6 +1048,8 @@ export class ElementorGenerator {
       (typeof node.styles?.borderRadius === 'number' && node.styles.borderRadius >= 50);
 
     if (isCircular && node.styles?.backgroundColor) {
+      this.containerCount++;
+      this.elementCount++;
       const circleSize = 90;
       settings.duration = 0;
       return {
@@ -1070,7 +1091,7 @@ export class ElementorGenerator {
       widgetType: 'progress',
       settings: {
         title: node.label || '',
-        percent: { unit: '%', size: node.value || 50 },
+        percent: { unit: '%', size: Math.max(0, Math.min(100, node.value / (node.max ?? 100) * 100)) },
         display_percentage: 'show',
       },
       elements: [],
@@ -1173,7 +1194,7 @@ export class ElementorGenerator {
       elType: 'widget',
       widgetType: 'google_maps',
       settings: {
-        address: node.address || 'London Eye, London, United Kingdom',
+        address: node.location || node.address || '',
         zoom: { unit: 'px', size: node.zoom || 14 },
         height: { unit: 'px', size: node.height || 300 },
       },
@@ -1191,8 +1212,9 @@ export class ElementorGenerator {
       elType: 'widget',
       widgetType: 'video',
       settings: {
-        video_type: node.videoType || 'youtube',
-        youtube_url: node.url || 'https://www.youtube.com/watch?v=XHTrLYShBRQ',
+        video_type: node.provider === 'self-hosted' ? 'hosted' : node.provider || node.videoType || 'youtube',
+        ...(node.provider === 'self-hosted' ? { hosted_url: { url: node.url || '', id: '' } }
+          : node.provider === 'vimeo' ? { vimeo_url: node.url || '' } : { youtube_url: node.url || '' }),
       },
       elements: [],
     };
@@ -1208,8 +1230,8 @@ export class ElementorGenerator {
       elType: 'widget',
       widgetType: 'star-rating',
       settings: {
-        rating_scale: '5',
-        rating: node.value || 5,
+        rating_scale: node.max === 10 ? '10' : '5',
+        rating: Math.max(0, Math.min(node.max === 10 ? 10 : 5, node.value)),
         star_style: 'star_fontawesome',
       },
       elements: [],
@@ -1217,35 +1239,16 @@ export class ElementorGenerator {
   }
 
   private convertLinkAsButton(node: any): ElementorElement {
-    this.widgetCount++;
-    this.elementCount++;
-    this.widgetsUsed.add('button');
-
-    const textColor = node.styles?.color || (node as any).typography?.color_hex || '#ffffff';
-    const fontSize = node.styles?.fontSize || (node as any).typography?.font_size_px || 14;
-
-    return {
-      id: generateElementId(),
-      elType: 'widget',
-      widgetType: 'button',
-      settings: {
-        text: node.text || 'Link',
-        link: { url: node.url || '#', is_external: '', nofollow: '' },
-        button_type: 'default',
-        background_color: 'transparent',
-        button_text_color: textColor,
-        button_padding: { top: '0', right: '0', bottom: '0', left: '0', unit: 'px', isLinked: true },
-        typography_typography: 'custom',
-        typography_font_size: { unit: 'px', size: fontSize },
-        _element_width: 'initial',
-        _flex_shrink: 0,
-      },
-      elements: [],
-    };
+    const element = this.convertButtonNode({ ...node, kind: 'button', styles: {
+      backgroundColor: 'transparent', padding: { top: 0, right: 0, bottom: 0, left: 0 }, ...node.styles,
+    } });
+    element.settings.button_type = '';
+    return element;
   }
 
   private convertBadgeAsHeading(node: any, dir?: DIRDocument): ElementorElement {
     this.widgetCount++;
+    this.containerCount++;
     this.elementCount += 2;
     this.widgetsUsed.add('heading');
 
@@ -1253,7 +1256,7 @@ export class ElementorGenerator {
     const textColor = node.styles?.color || (isDarkColor(bgColor) ? '#ffffff' : '#060b05');
     const fontSize = node.styles?.fontSize || 13;
     const padding = node.styles?.padding || { top: 6, bottom: 6, left: 16, right: 16 };
-    const borderRadius = node.styles?.borderRadius || 9999;
+    const borderRadius = node.styles?.borderRadius ?? 9999;
 
     return {
       id: generateElementId(),
@@ -1302,9 +1305,15 @@ export class ElementorGenerator {
     const borderRadius = formDetails?.border_radius_px ?? (typeof node.styles?.borderRadius === 'number' ? node.styles.borderRadius : 50);
     const fontSize = node.styles?.fontSize || 14;
 
-    const html = `<div class="elementor-custom-input-wrap" style="width: 100%;">
-  <input type="text" placeholder="${placeholder}" style="width: 100%; background: ${bg}; color: ${color}; border: 1px solid rgba(255, 255, 255, 0.15); border-radius: ${borderRadius}px; padding: 12px 20px; font-size: ${fontSize}px; outline: none; box-sizing: border-box;" />
-</div>`;
+    const esc = (value: string) => this.escapeText(value);
+    const inputType = ['text', 'email', 'tel', 'number', 'search', 'url', 'password'].includes(node.inputType)
+      ? node.inputType : 'text';
+    const padding = node.styles?.padding || { top: 12, right: 20, bottom: 12, left: 20 };
+    const borderWidth = node.styles?.borderWidth ?? 0;
+    const borderColor = node.styles?.borderColor || 'transparent';
+    const family = node.styles?.fontFamily || 'inherit';
+    const html = `<input type="${inputType}" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}" style="width:100%;min-width:0;background:${esc(bg)};color:${esc(color)};border:${borderWidth}px solid ${esc(borderColor)};border-radius:${borderRadius}px;padding:${padding.top ?? 0}px ${padding.right ?? 0}px ${padding.bottom ?? 0}px ${padding.left ?? 0}px;font-family:${esc(family)};font-size:${fontSize}px;box-sizing:border-box;" />`;
+
 
     return {
       id: generateElementId(),
@@ -1427,10 +1436,58 @@ export class ElementorGenerator {
       elType: 'widget',
       widgetType: 'text-editor',
       settings: {
-        editor: `<div class="fallback-node" data-kind="${node.kind}">${node.label || node.kind}</div>`,
+        editor: `<div class="fallback-node" data-kind="${this.escapeText(node.kind)}">${this.escapeText(node.label || node.description || node.kind)}</div>`,
       },
       elements: [],
     };
+  }
+
+  private escapeText(value: string): string {
+    return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  private renderHeadingText(node: DIRHeadingNode): string {
+    const text = node.text || '';
+    const spans = node.typography?.inline_color_spans || [];
+    let cursor = 0;
+    let html = '';
+    while (cursor < text.length) {
+      const next = spans.map((span) => ({ ...span, index: span.text ? text.indexOf(span.text, cursor) : -1 }))
+        .filter((span) => span.index >= 0 && /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(span.color_hex))
+        .sort((a, b) => a.index - b.index)[0];
+      if (!next) { html += this.escapeText(text.slice(cursor)); break; }
+      html += this.escapeText(text.slice(cursor, next.index));
+      html += `<span style="color:${next.color_hex}">${this.escapeText(next.text)}</span>`;
+      cursor = next.index + next.text.length;
+    }
+    return html.replace(/\r?\n/g, '<br>');
+  }
+
+  private applyWidgetBoxStyles(node: any, settings: Record<string, any>): void {
+    const apply = (styles: DIRStyles | undefined, suffix = '') => {
+      if (!styles) return;
+      if (styles.margin) settings[`_margin${suffix}`] = this.mapSpacing(styles.margin);
+      if (styles.padding && !['button', 'link', 'input'].includes(node.kind)) {
+        settings[`_padding${suffix}`] = this.mapSpacing(styles.padding);
+      }
+      if (styles.padding && ['button', 'link'].includes(node.kind)) {
+        settings[`text_padding${suffix}`] = this.mapSpacing(styles.padding);
+      }
+      if (styles.alignSelf) settings[`align_self${suffix}`] = this.mapAlignItems(styles.alignSelf);
+      if (!suffix && styles.flexGrow !== undefined) settings._flex_grow = styles.flexGrow;
+      if (!suffix && styles.flexShrink !== undefined) settings._flex_shrink = styles.flexShrink;
+      if (styles.width !== undefined && !['image'].includes(node.kind)) {
+        const match = String(styles.width).match(/^(\d+(?:\.\d+)?)(px|%|em|rem|vw)?$/);
+        if (match) {
+          settings[`_element_width${suffix}`] = 'initial';
+          settings[`_element_custom_width${suffix}`] = { unit: match[2] || 'px', size: Number(match[1]) };
+        }
+      }
+    };
+    apply(node.styles);
+    apply(node.responsiveOverrides?.tablet, '_tablet');
+    apply(node.responsiveOverrides?.mobile, '_mobile');
   }
 
   private applyStylesToSettings(styles: DIRStyles | undefined, settings: Record<string, any>, isContainer: boolean): void {
@@ -1442,6 +1499,22 @@ export class ElementorGenerator {
         settings.background_color = styles.backgroundColor;
       } else {
         settings.background_color = styles.backgroundColor;
+      }
+    }
+
+    if (styles.backgroundGradient) {
+      const gradient = styles.backgroundGradient.match(/^linear-gradient\(\s*(-?\d+(?:\.\d+)?)deg\s*,\s*(#[0-9a-f]{3,8})(?:\s+(\d+(?:\.\d+)?)%)?\s*,\s*(#[0-9a-f]{3,8})(?:\s+(\d+(?:\.\d+)?)%)?\s*\)$/i);
+      if (gradient) {
+        settings.background_background = 'gradient';
+        settings.background_gradient_type = 'linear';
+        settings.background_gradient_angle = { unit: 'deg', size: Number(gradient[1]) };
+        settings.background_color = gradient[2];
+        settings.background_color_stop = { unit: '%', size: Number(gradient[3] ?? 0) };
+        settings.background_color_b = gradient[4];
+        settings.background_color_b_stop = { unit: '%', size: Number(gradient[5] ?? 100) };
+      } else {
+        this.warnings.push(`Unsupported background gradient: ${styles.backgroundGradient}`);
+        this.unsupportedFeatures.add('backgroundGradient');
       }
     }
 
@@ -1510,24 +1583,15 @@ export class ElementorGenerator {
     }
 
     const minH = styles.minHeight ?? (isContainer ? styles.height : undefined);
-    if (minH !== undefined) {
-      if (typeof minH === 'number') {
-        const clampedH = Math.min(800, Math.max(0, minH));
-        settings.height = 'min-height';
-        settings.custom_height = { unit: 'px', size: clampedH, sizes: [] };
-        if (clampedH > 400) {
-          settings.custom_height_tablet = { unit: 'px', size: Math.round(clampedH * 0.8), sizes: [] };
-          settings.custom_height_mobile = { unit: 'px', size: Math.max(280, Math.round(clampedH * 0.65)), sizes: [] };
-          this.inferredResponsiveCount++;
-        }
-      } else if (typeof minH === 'string' && minH.endsWith('vh')) {
-        const val = parseInt(minH, 10);
-        settings.height = 'min-height';
-        settings.custom_height = { unit: 'vh', size: val, sizes: [] };
-        settings.custom_height_tablet = { unit: 'vh', size: Math.max(50, Math.round(val * 0.9)), sizes: [] };
-        settings.custom_height_mobile = { unit: 'vh', size: Math.max(40, Math.round(val * 0.8)), sizes: [] };
-        this.inferredResponsiveCount++;
-      }
+    if (minH !== undefined && isContainer) {
+      const match = String(minH).match(/^(\d+(?:\.\d+)?)(px|vh|em|rem)?$/);
+      if (match) settings.min_height = { unit: match[2] || 'px', size: Number(match[1]), sizes: [] };
+    }
+    if (isContainer) {
+      if (styles.flexGrow !== undefined) settings.flex_grow = styles.flexGrow;
+      if (styles.flexShrink !== undefined) settings.flex_shrink = styles.flexShrink;
+      if (styles.alignSelf) settings.align_self = this.mapAlignItems(styles.alignSelf);
+      if (styles.overflow) settings.overflow = styles.overflow;
     }
 
     if (styles.backgroundImage && isContainer) {
@@ -1568,10 +1632,12 @@ export class ElementorGenerator {
       hasTypo = true;
     }
     if (styles.lineHeight) {
-      const lh = typeof styles.lineHeight === 'number' ? styles.lineHeight : 1.5;
-      settings.typography_line_height = { unit: 'em', size: lh };
-      settings.typography_line_height_tablet = { unit: 'em', size: Math.max(1.2, Math.round(lh * 0.95 * 10) / 10) };
-      settings.typography_line_height_mobile = { unit: 'em', size: Math.max(1.2, Math.round(lh * 0.9 * 10) / 10) };
+      const mapped = this.mapLineHeight(styles.lineHeight);
+      settings.typography_line_height = mapped;
+      if (mapped.unit === 'em') {
+        settings.typography_line_height_tablet = { unit: 'em', size: Math.max(1.2, Math.round(mapped.size * 0.95 * 10) / 10) };
+        settings.typography_line_height_mobile = { unit: 'em', size: Math.max(1.2, Math.round(mapped.size * 0.9 * 10) / 10) };
+      }
       hasTypo = true;
     }
     if (styles.letterSpacing !== undefined) {
@@ -1636,12 +1702,12 @@ export class ElementorGenerator {
         settings[`flex_align_items${suffix}`] = this.mapAlignItems(devStyles.alignItems);
       }
       if (devStyles.gap !== undefined) {
-        settings[`flex_gap${suffix}`] = { unit: 'px', size: devStyles.gap };
+        settings[`flex_gap${suffix}`] = this.mapGap(devStyles.gap);
       }
-      if (devStyles.padding) {
+      if (devStyles.padding && _isContainer) {
         settings[`padding${suffix}`] = this.mapSpacing(devStyles.padding);
       }
-      if (devStyles.margin) {
+      if (devStyles.margin && _isContainer) {
         settings[`margin${suffix}`] = this.mapSpacing(devStyles.margin);
       }
       if (devStyles.fontSize) {
@@ -1649,23 +1715,30 @@ export class ElementorGenerator {
         settings.typography_typography = 'custom';
       }
       if (devStyles.lineHeight) {
-        settings[`typography_line_height${suffix}`] = typeof devStyles.lineHeight === 'number'
-          ? { unit: 'em', size: devStyles.lineHeight }
-          : { unit: 'em', size: 1.5 };
+        settings[`typography_line_height${suffix}`] = this.mapLineHeight(devStyles.lineHeight);
         settings.typography_typography = 'custom';
       }
       if (devStyles.textAlign) {
         settings[`align${suffix}`] = devStyles.textAlign;
       }
       if (devStyles.width) {
-        settings[`width${suffix}`] = typeof devStyles.width === 'number'
-          ? { unit: 'px', size: devStyles.width }
-          : { unit: '%', size: 100 };
+        const match = String(devStyles.width).match(/^(\d+(?:\.\d+)?)(px|%|em|rem|vw)?$/);
+        if (match) settings[`width${suffix}`] = { unit: match[2] || 'px', size: Number(match[1]) };
       }
       if (devStyles.maxWidth && typeof devStyles.maxWidth === 'number') {
         settings[`boxed_width${suffix}`] = { unit: 'px', size: devStyles.maxWidth, sizes: [] };
       }
     }
+  }
+
+  private mapGap(size: number): Record<string, any> {
+    return { unit: 'px', column: size, row: size, isLinked: true };
+  }
+
+  private mapLineHeight(value: number | string): { unit: string; size: number } {
+    const match = String(value).match(/^(\d+(?:\.\d+)?)(px|em|rem|%)?$/);
+    const size = match ? Number(match[1]) : 1.5;
+    return { unit: match?.[2] || (size > 4 ? 'px' : 'em'), size };
   }
 
   private mapSpacing(spacing: DIRSpacing): Record<string, any> {

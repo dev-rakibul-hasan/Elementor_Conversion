@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { Request, Response } from 'express';
-import { requireAuth, optionalAuth, signToken } from './auth.js';
+import { requireAuth, optionalAuth, signToken, getAuthenticatedUserId } from './auth.js';
 import { AuthError } from '../lib/errors.js';
 
 describe('Auth Middleware', () => {
@@ -75,5 +75,16 @@ describe('Auth Middleware', () => {
     } as unknown as Request;
     optionalAuth(reqWith, {} as Response, () => {});
     expect(reqWith.user?.id).toBe(userPayload.id);
+  });
+
+  it('getAuthenticatedUserId extracts user id or throws AuthError', () => {
+    const validReq = { user: { id: 'user-1', email: 'test@example.com' } } as unknown as Request;
+    expect(getAuthenticatedUserId(validReq)).toBe('user-1');
+
+    const validReqWithUserId = { user: { userId: 'user-2', email: 'test@example.com' } } as unknown as Request;
+    expect(getAuthenticatedUserId(validReqWithUserId)).toBe('user-2');
+
+    const emptyReq = {} as Request;
+    expect(() => getAuthenticatedUserId(emptyReq)).toThrow(AuthError);
   });
 });

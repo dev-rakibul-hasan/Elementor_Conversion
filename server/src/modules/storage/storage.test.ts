@@ -101,6 +101,18 @@ describe('Storage Module', () => {
       }
     });
 
+    it('should safely handle keys with leading slashes and backslashes', async () => {
+      const adapter = new LocalStorageAdapter(testStorageDir);
+      const testBuffer = Buffer.from('leading slash test');
+      await adapter.upload('/test-leading.txt', testBuffer, 'text/plain');
+      expect(await adapter.exists('/test-leading.txt')).toBe(true);
+      expect(await adapter.exists('test-leading.txt')).toBe(true);
+      const downloaded = await adapter.download('/test-leading.txt');
+      expect(downloaded.toString('utf-8')).toBe('leading slash test');
+      await adapter.delete('/test-leading.txt');
+      expect(await adapter.exists('/test-leading.txt')).toBe(false);
+    });
+
     it('should reject invalid empty keys', async () => {
       const adapter = new LocalStorageAdapter(testStorageDir);
       await expect(adapter.upload('', Buffer.from('test'), 'text/plain')).rejects.toThrow(

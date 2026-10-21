@@ -78,7 +78,7 @@ export async function validateImageBuffer(
   // 3. Inspect image structure with Sharp (with decompression bomb limit protection)
   try {
     const image = sharp(file.buffer, {
-      failOnError: true,
+      failOn: 'truncated',
       limitInputPixels: 268402689, // ~268 Megapixels limit
     });
     const metadata = await image.metadata();

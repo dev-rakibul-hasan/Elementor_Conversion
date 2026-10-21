@@ -32,10 +32,11 @@ describe('Groq Model Deprecation & Bounded Error Handling', () => {
       expect(cap?.supportsJson).toBe(true);
     });
 
-    it('llama-3.3-70b-versatile is registered with deprecation/decommission notes', () => {
+    it('llama-3.3-70b-versatile is registered as a text model without inventing a retirement date', () => {
       const cap = KNOWN_MODEL_CAPABILITIES['llama-3.3-70b-versatile'];
       expect(cap).toBeDefined();
-      expect(cap?.notes).toContain('DEPRECATED/DECOMMISSIONED');
+      expect(cap?.supportsImages).toBe(false);
+      expect(cap?.notes).not.toContain('DEPRECATED/DECOMMISSIONED');
     });
 
     it('validateRequestCapabilities rejects image payloads for openai/gpt-oss-120b', () => {

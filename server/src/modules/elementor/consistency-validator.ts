@@ -95,7 +95,7 @@ export class ConsistencyValidator {
 
     // Every canonical node kind is handled in convertNode in generator.ts
     // Verify generator has definitions
-    const generatorPath = path.join(__dirname, 'generator.ts');
+    const generatorPath = path.join(__dirname, fs.existsSync(path.join(__dirname, 'generator.ts')) ? 'generator.ts' : 'generator.js');
     if (fs.existsSync(generatorPath)) {
       const generatorCode = fs.readFileSync(generatorPath, 'utf8');
       for (const kind of canonicalDIRNodeKinds) {

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useId, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -26,24 +26,44 @@ export function Modal({
   maxWidth = 'md',
 }: ModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    const focusable = () => Array.from(modalRef.current?.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]'
+    ) || []);
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
+      if (e.key === 'Escape') {
+        closeRef.current();
+      }
+      if (e.key === 'Tab') {
+        const elements = focusable();
+        const first = elements[0], last = elements[elements.length - 1];
+        if (!first) { e.preventDefault(); modalRef.current?.focus(); }
+        else if (e.shiftKey && (document.activeElement === first || document.activeElement === modalRef.current)) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        }
       }
     };
 
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-      window.addEventListener('keydown', handleKeyDown);
-    }
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    (focusable()[0] || modalRef.current)?.focus();
 
     return () => {
-      document.body.style.overflow = 'unset';
+      document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
+      previousFocus?.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   const maxWidths = {
     sm: 'max-w-sm',
@@ -73,7 +93,9 @@ export function Modal({
             ref={modalRef}
             role="dialog"
             aria-modal="true"
-            aria-labelledby={title ? 'modal-title' : undefined}
+            tabIndex={-1}
+            aria-labelledby={title ? titleId : undefined}
+            aria-describedby={description ? descriptionId : undefined}
             variants={modalVariants}
             initial="hidden"
             animate="visible"
@@ -99,11 +121,11 @@ export function Modal({
             {(title || description) && (
               <div className="mb-4 pr-6 space-y-1">
                 {title && (
-                  <h2 id="modal-title" className="text-lg font-semibold tracking-tight text-foreground">
+                  <h2 id={titleId} className="text-lg font-semibold tracking-tight text-foreground">
                     {title}
                   </h2>
                 )}
-                {description && <p className="text-sm text-muted-foreground">{description}</p>}
+                {description && <p id={descriptionId} className="text-sm text-muted-foreground">{description}</p>}
               </div>
             )}
 

@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Header } from '../components/layout/header';
@@ -34,8 +35,10 @@ import { pageVariants, staggerContainer, staggerItem, EASE_OUT_EXPO } from '../l
 
 export default function DashboardPage() {
   const { isAuthenticated, token, setAuth } = useAuthStore();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const { data: projects = [], isLoading: loading } = useQuery({
+    queryKey: ['projects', token], queryFn: api.projects.list, enabled: !!token,
+  });
   const [quickLoginLoading, setQuickLoginLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'processing' | 'failed'>('all');
@@ -47,7 +50,7 @@ export default function DashboardPage() {
     setDeleting(true);
     try {
       await api.projects.delete(projectToDelete.id);
-      setProjects((prev) => prev.filter((p) => p.id !== projectToDelete.id));
+      queryClient.setQueryData<Project[]>(['projects', token], (prev) => prev?.filter((p) => p.id !== projectToDelete.id));
       toast.success(`Project "${projectToDelete.name}" deleted successfully`);
       setProjectToDelete(null);
     } catch (err: unknown) {
@@ -57,38 +60,12 @@ export default function DashboardPage() {
     }
   };
 
-  const loadProjects = useCallback(async () => {
-    const storedToken = token || (typeof window !== 'undefined' ? localStorage.getItem('dte_token') : null);
-    if (!storedToken) {
-      setProjects([]);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const res = await api.projects.list();
-      if (res) {
-        setProjects(res);
-      }
-    } catch {
-      setProjects([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    loadProjects();
-  }, [loadProjects, isAuthenticated]);
-
   const handleQuickDevLogin = async () => {
     setQuickLoginLoading(true);
     try {
       const res = await api.auth.quickLogin();
       setAuth(res.user, res.token);
       toast.success('Signed in as Dev User!');
-      await loadProjects();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -109,7 +86,7 @@ export default function DashboardPage() {
 
       if (statusFilter === 'all') return true;
       if (statusFilter === 'ready') return status === 'preview_ready' || status === 'published';
-      if (statusFilter === 'processing') return !['preview_ready', 'published', 'failed', 'none'].includes(status);
+      if (statusFilter === 'processing') return !['preview_ready', 'published', 'failed', 'cancelled', 'none'].includes(status);
       if (statusFilter === 'failed') return status === 'failed';
       return true;
     });
@@ -126,7 +103,7 @@ export default function DashboardPage() {
       const s = p.conversionJobs?.[0]?.status;
       if (s === 'preview_ready' || s === 'published') ready++;
       else if (s === 'failed') failed++;
-      else if (s) processing++;
+      else if (s && s !== 'cancelled') processing++;
     });
 
     const successRate = total > 0 ? Math.round((ready / total) * 100) : 100;
@@ -206,11 +183,11 @@ export default function DashboardPage() {
 
             <Card className="p-4 bg-card border-border">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Avg Latency</span>
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Failed Conversions</span>
                 <Zap className="w-4 h-4 text-amber-500" />
               </div>
-              <div className="mt-2 text-2xl font-bold text-foreground">&lt; 1.8s</div>
-              <p className="text-[11px] text-muted-foreground mt-0.5">Deterministic cache</p>
+              <div className="mt-2 text-2xl font-bold text-foreground">{stats.failed}</div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Jobs needing attention</p>
             </Card>
           </div>
         )}

@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, getAuthenticatedUserId } from '../middleware/auth.js';
 import { encrypt, decrypt } from '../modules/security/encryption.js';
 import { MCPClient } from '../modules/mcp/client.js';
 import { MCPPublisher } from '../modules/mcp/publisher.js';
@@ -33,7 +33,7 @@ const siteCreateSchema = z.object({
 
 sitesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = getAuthenticatedUserId(req);
     const sites = await prisma.siteConnection.findMany({
       where: { userId },
       select: {
@@ -56,7 +56,7 @@ sitesRouter.get('/', async (req: Request, res: Response, next: NextFunction) => 
 
 sitesRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = getAuthenticatedUserId(req);
     const parsed = siteCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError('Invalid site parameters', parsed.error.format());
@@ -76,6 +76,13 @@ sitesRouter.post('/', async (req: Request, res: Response, next: NextFunction) =>
     if (!/^https?:\/\//i.test(siteUrl)) {
       siteUrl = `http://${siteUrl}`;
     }
+    try {
+      const url = new URL(siteUrl);
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) {
+        throw new Error('Invalid site URL');
+      }
+      siteUrl = url.toString().replace(/\/+$/, '');
+    } catch { throw new ValidationError('Enter a valid HTTP or HTTPS WordPress URL without credentials, query parameters or fragments'); }
 
     let defaultName = 'WordPress Site';
     try {
@@ -111,7 +118,7 @@ sitesRouter.post('/', async (req: Request, res: Response, next: NextFunction) =>
 
 sitesRouter.post('/:id/test', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = getAuthenticatedUserId(req);
     const id = req.params.id as string;
 
     const site = await prisma.siteConnection.findFirst({ where: { id, userId } });
@@ -140,7 +147,8 @@ sitesRouter.post('/:id/test', async (req: Request, res: Response, next: NextFunc
 
 sitesRouter.delete('/:id', async (req, res, next) => {
   try {
-    const removed = await prisma.siteConnection.deleteMany({ where: { id: req.params.id as string, userId: req.user!.id } });
+    const userId = getAuthenticatedUserId(req);
+    const removed = await prisma.siteConnection.deleteMany({ where: { id: req.params.id as string, userId } });
     if (!removed.count) throw new NotFoundError('Site');
     res.json({ success: true, data: { success: true } });
   } catch (error) { next(error); }
@@ -148,7 +156,8 @@ sitesRouter.delete('/:id', async (req, res, next) => {
 
 sitesRouter.get('/:id/capabilities', async (req, res, next) => {
   try {
-    const site = await prisma.siteConnection.findFirst({ where: { id: req.params.id as string, userId: req.user!.id } });
+    const userId = getAuthenticatedUserId(req);
+    const site = await prisma.siteConnection.findFirst({ where: { id: req.params.id as string, userId } });
     if (!site) throw new NotFoundError('Site');
     const client = new MCPClient({ siteUrl: site.siteUrl, credentials: JSON.parse(decrypt(site.encryptedCredentials)) });
     const capabilities = await client.checkCapabilities();
@@ -172,7 +181,7 @@ async function publish(req: Request, res: Response, next: NextFunction) {
     const parsed = publishSchema.safeParse({ ...req.body, ...(req.params.jobId ? { jobId: req.params.jobId } : {}) });
     if (!parsed.success) throw new ValidationError('Invalid publish request', parsed.error.format());
     const input = parsed.data;
-    const userId = req.user!.id;
+    const userId = getAuthenticatedUserId(req);
     const siteId = input.siteConfigId || input.siteConnectionId;
     if (!siteId) throw new ValidationError('Target site connection ID is required');
     if (!input.jobId && !input.projectId) throw new ValidationError('A job or project ID is required');
@@ -193,12 +202,15 @@ async function publish(req: Request, res: Response, next: NextFunction) {
     } });
     if (prior) return res.json({ success: true, data: prior.outputPayload });
     const token = `publish-${randomUUID()}`;
-    const claim = await prisma.conversionJob.updateMany({ where: {
-      id: job.id, OR: [
+    const claim = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${job.projectId} FOR UPDATE`;
+      return tx.conversionJob.updateMany({ where: {
+      id: job.id, project: { deletingAt: null }, OR: [
         { status: { in: ['preview_ready', 'published'] }, workerId: null },
         { status: 'publishing', leaseExpiresAt: { lte: new Date() } },
       ],
-    }, data: { status: 'publishing', currentStage: 'publishing', workerId: token, leaseExpiresAt: new Date(Date.now() + 600000) } });
+      }, data: { status: 'publishing', currentStage: 'publishing', workerId: token, leaseExpiresAt: new Date(Date.now() + 600000) } });
+    });
     if (claim.count !== 1) throw new AppError('Job is busy or is not ready for publishing', 409, 'JOB_BUSY');
     claimed = { id: job.id, token, previousStatus: job.status === 'published' ? 'published' : 'preview_ready' };
     const publisher = new MCPPublisher({ siteUrl: site.siteUrl, credentials: JSON.parse(decrypt(site.encryptedCredentials)) });

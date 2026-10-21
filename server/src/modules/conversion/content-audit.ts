@@ -1,5 +1,6 @@
 import type { DIRDocument } from '../dir/types.js';
 import { convertDIRToElementor } from '../elementor/generator.js';
+import { optimizeElementorDocument } from '../elementor/serializer.js';
 
 function normalize(text: string): string {
   return text.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&apos;/g, "'")
@@ -32,7 +33,7 @@ function inventory(elements: any[]) {
 /** Structural/content fidelity only. This does not compare rendered screenshots. */
 export function auditDIRContent(dir: DIRDocument, document: any): void {
   if (dir.pages.length !== 1) throw new Error('Exactly one DIR page is supported per conversion');
-  const expected = convertDIRToElementor(dir).document;
+  const expected = optimizeElementorDocument(convertDIRToElementor(dir).document);
   if (!Array.isArray(document?.content) || document.content.length !== expected.content.length) {
     throw new Error('Elementor section count differs from the DIR');
   }
@@ -67,7 +68,35 @@ export function auditDIRContent(dir: DIRDocument, document: any): void {
       }
     }
   }
+  auditElementTree(expected.content, document.content, 'content');
   if (expected.page_settings?.background_color !== document.page_settings?.background_color) {
     throw new Error('Elementor page background differs from the DIR');
   }
+}
+
+/** Compare semantic controls; generated Elementor/repeater IDs are intentionally ignored. */
+function compareControls(expected: any, actual: any, path: string): void {
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual) || expected.length !== actual.length) throw new Error(`Elementor differs from DIR ${path}`);
+    expected.forEach((value, index) => compareControls(value, actual[index], `${path}.${index}`));
+  } else if (expected && typeof expected === 'object') {
+    for (const [key, value] of Object.entries(expected)) {
+      if (key !== '_id') compareControls(value, actual?.[key], `${path}.${key}`);
+    }
+  } else if (expected !== actual) {
+    throw new Error(`Elementor differs from DIR ${path}`);
+  }
+}
+
+function auditElementTree(expected: any[], actual: any[], path: string): void {
+  if (expected.length !== actual.length) throw new Error(`Elementor hierarchy differs from DIR ${path}`);
+  expected.forEach((element, index) => {
+    const candidate = actual[index];
+    const nodePath = `${path}.${index}`;
+    if (element.elType !== candidate?.elType || element.widgetType !== candidate?.widgetType) {
+      throw new Error(`Elementor node type differs from DIR ${nodePath}`);
+    }
+    compareControls(element.settings, candidate.settings, `${nodePath}.settings`);
+    auditElementTree(element.elements || [], candidate.elements || [], `${nodePath}.elements`);
+  });
 }

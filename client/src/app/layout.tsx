@@ -1,9 +1,12 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/inter/700.css';
+import '@fontsource/inter/800.css';
+import '@fontsource/inter/900.css';
 import './globals.css';
 import { Providers } from '../components/providers';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: 'Design-to-Elementor | AI Conversion Studio',
@@ -25,7 +28,7 @@ export default function RootLayout({
                 try {
                   var saved = localStorage.getItem('dte_theme');
                   var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-                  var theme = saved || (prefersDark ? 'dark' : 'light');
+                  var theme = saved === 'light' || saved === 'dark' ? saved : (prefersDark ? 'dark' : 'light');
                   if (theme === 'dark') {
                     document.documentElement.classList.add('dark');
                     document.documentElement.style.colorScheme = 'dark';
@@ -39,7 +42,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={`${inter.className} bg-background text-foreground min-h-screen flex flex-col antialiased selection:bg-primary/20 selection:text-primary transition-colors duration-200`}>
+      <body suppressHydrationWarning className="bg-background text-foreground min-h-screen flex flex-col antialiased selection:bg-primary/20 selection:text-primary transition-colors duration-200">
         <Providers>{children}</Providers>
       </body>
     </html>

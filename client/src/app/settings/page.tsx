@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '../../store/auth';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { Header } from '../../components/layout/header';
@@ -29,28 +31,22 @@ import { staggerContainer, staggerItem } from '../../lib/animations';
 
 export default function SettingsPage() {
   const { theme, setTheme, resolvedTheme } = useTheme();
-  const [sites, setSites] = useState<SiteConnection[]>([]);
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  const { data: sites = [], refetch: fetchSites } = useQuery({
+    queryKey: ['sites', token], queryFn: api.sites.list, enabled: !!token,
+  });
   const [newSiteUrl, setNewSiteUrl] = useState('');
   const [newSiteName, setNewSiteName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [testingId, setTestingId] = useState<string | null>(null);
-
-  const fetchSites = async () => {
-    try {
-      const res = await api.sites.list();
-      if (res) setSites(res);
-    } catch {
-      // ignore
-    }
-  };
-
-  useEffect(() => {
-    fetchSites();
-  }, []);
+  const [saving, setSaving] = useState(false);
 
   const handleAddSite = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
       await api.sites.create({
         name: newSiteName.trim() || undefined,
@@ -70,7 +66,17 @@ export default function SettingsPage() {
       fetchSites();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to register site connection');
+    } finally {
+      setSaving(false);
     }
+  };
+
+  const handleDeleteSite = async (id: string) => {
+    try {
+      await api.sites.delete(id);
+      queryClient.setQueryData<SiteConnection[]>(['sites', token], (current) => current?.filter((site) => site.id !== id));
+      toast.success('WordPress connection deleted');
+    } catch (err) { toast.error(err instanceof Error ? err.message : 'Failed to delete connection'); }
   };
 
   const handleTestConnection = async (id: string) => {
@@ -185,22 +191,22 @@ export default function SettingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
                   <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Vision Model</div>
-                  <div className="font-semibold text-foreground text-sm mt-1">Gemini 2.5 / Flash</div>
+                  <div className="font-semibold text-foreground text-sm mt-1">Configured vision provider</div>
                   <Badge variant="info" className="mt-2 text-[10px]">Stage A & B (DIR Parser)</Badge>
                 </div>
                 <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
                   <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Structure Engine</div>
-                  <div className="font-semibold text-foreground text-sm mt-1">Groq / Llama 3.3 70B</div>
+                  <div className="font-semibold text-foreground text-sm mt-1">Deterministic DIR compiler</div>
                   <Badge variant="info" className="mt-2 text-[10px]">Stage C (Elementor AST)</Badge>
                 </div>
                 <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
                   <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Review & Fallback</div>
-                  <div className="font-semibold text-foreground text-sm mt-1">OpenRouter / Auto</div>
+                  <div className="font-semibold text-foreground text-sm mt-1">Configured review provider</div>
                   <Badge variant="info" className="mt-2 text-[10px]">Stage D (Validation Gate)</Badge>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">
-                Deterministic hash caching active: identical screenshots with matching prompt hashes return instant responses with zero API latency.
+                Matching image, input, model and prompt versions can reuse cached AI responses. Elementor compilation and content checks run locally.
               </p>
             </CardContent>
           </Card>
@@ -237,6 +243,9 @@ export default function SettingsPage() {
                         )}
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" aria-label={`Delete ${site.name || site.siteUrl}`} onClick={() => handleDeleteSite(site.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                         <Button
                           size="sm"
                           variant="outline"
@@ -290,7 +299,7 @@ export default function SettingsPage() {
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   Credentials are encrypted using AES-256-GCM before storage and never returned in plaintext.
                 </p>
-                <Button type="submit" size="sm" className="flex items-center gap-1.5" leftIcon={<Plus className="w-4 h-4" />}>
+                <Button type="submit" size="sm" isLoading={saving} className="flex items-center gap-1.5" leftIcon={<Plus className="w-4 h-4" />}>
                   Save WordPress Connection
                 </Button>
               </form>

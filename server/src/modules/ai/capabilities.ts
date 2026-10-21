@@ -31,7 +31,7 @@ export const KNOWN_MODEL_CAPABILITIES: Record<string, ModelCapabilityInfo> = {
     modelId: 'llama-3.3-70b-versatile',
     supportsImages: false,
     supportsJson: true,
-    notes: 'DEPRECATED/DECOMMISSIONED: Officially decommissioned on Groq Aug 16, 2026. Returns 404 / access error.',
+    notes: 'Text model listed in the Groq model catalog; access and availability depend on the account.',
   },
   'llama-3.1-8b-instant': {
     provider: 'groq',
@@ -172,6 +172,7 @@ export const KNOWN_MODEL_CAPABILITIES: Record<string, ModelCapabilityInfo> = {
  * Checks whether a given model identifier supports multimodal image input.
  */
 export function isModelImageCapable(modelId: string, provider?: AIProvider): boolean {
+  if (provider === 'mock') return true;
   if (!modelId) return false;
   const normalized = modelId.toLowerCase().trim();
 

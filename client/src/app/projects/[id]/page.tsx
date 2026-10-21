@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuthStore } from '../../../store/auth';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Header } from '../../../components/layout/header';
@@ -10,7 +12,7 @@ import { Badge } from '../../../components/ui/badge';
 import { StageProgress } from '../../../components/conversion/stage-progress';
 import { DIRInspector } from '../../../components/conversion/dir-inspector';
 import { ElementorInspector } from '../../../components/conversion/elementor-inspector';
-import { api, Project, ConversionJobWithStages, API_BASE_URL } from '../../../lib/api';
+import { api, API_BASE_URL } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import {
   Download,
@@ -34,20 +36,30 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const projectId = params.id as string;
 
-  const [project, setProject] = useState<Project | null>(null);
-  const [job, setJob] = useState<ConversionJobWithStages | null>(null);
-  const [dirData, setDirData] = useState<Record<string, unknown> | null>(null);
-  const [elementorData, setElementorData] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { token, isLoading: authLoading } = useAuthStore();
+  const queryClient = useQueryClient();
+  const { data: project, isLoading, error, refetch } = useQuery({
+    queryKey: ['project', projectId, token],
+    queryFn: () => api.projects.get(projectId),
+    enabled: !!token,
+    refetchInterval: (query) => {
+      const status = query.state.data?.conversionJobs?.[0]?.status;
+      return status && ['preview_ready', 'failed', 'published', 'cancelled'].includes(status) ? false : 3000;
+    },
+  });
+  const job = project?.conversionJobs?.[0];
+  const dirData = job?.dirArtifact as Record<string, unknown> | null;
+  const elementorData = job?.elementorArtifact as Record<string, unknown> | null;
+  const loading = authLoading || isLoading;
   const [activeTab, setActiveTab] = useState<'status' | 'dir' | 'elementor'>('status');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const jobStatusRef = useRef<string | null>(null);
 
   const handleDeleteProject = async () => {
     setDeleting(true);
     try {
       await api.projects.delete(projectId);
+      await queryClient.invalidateQueries({ queryKey: ['projects'] });
       toast.success('Project deleted successfully');
       router.push('/');
     } catch (err: unknown) {
@@ -56,46 +68,12 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const fetchProjectData = useCallback(async () => {
-    try {
-      const res = await api.projects.get(projectId);
-      if (res) {
-        setProject(res);
-        const latestJob = res.conversionJobs?.[0];
-        if (latestJob) {
-          jobStatusRef.current = latestJob.status;
-          setJob(latestJob);
-
-          setDirData((latestJob.dirArtifact as Record<string, unknown>) || null);
-          setElementorData((latestJob.elementorArtifact as Record<string, unknown>) || null);
-        }
-      }
-    } catch {
-      toast.error('Failed to load project');
-    } finally {
-      setLoading(false);
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    fetchProjectData();
-    const interval = setInterval(() => {
-      const status = jobStatusRef.current;
-      if (status && ['preview_ready', 'failed', 'published', 'cancelled'].includes(status)) {
-        return;
-      }
-      fetchProjectData();
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [fetchProjectData]);
-
   const handleRetry = async () => {
     if (!job) return;
     try {
-      jobStatusRef.current = 'queued';
       await api.jobs.retry(job.id);
       toast.success('Conversion job retry queued');
-      fetchProjectData();
+      await refetch();
     } catch {
       toast.error('Failed to retry job');
     }
@@ -121,6 +99,12 @@ export default function ProjectDetailPage() {
         </div>
       </div>
     );
+  }
+
+  if (!project) {
+    return <div className="min-h-screen bg-background text-foreground"><Header />
+      <main className="max-w-7xl mx-auto p-8"><p>{error instanceof Error ? error.message : 'Sign in to view this project.'}</p>
+        <Link href="/" className="text-primary">Back to Dashboard</Link></main></div>;
   }
 
   const isReady = job?.status === 'preview_ready' || job?.status === 'published';
@@ -297,6 +281,7 @@ export default function ProjectDetailPage() {
                   {project?.assets && project.assets.length > 0 ? (
                     <div className="border border-border rounded-lg p-2 bg-secondary/30 text-center">
                       <p className="text-[11px] text-muted-foreground mb-2">Original Upload Asset</p>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={`${API_BASE_URL}/storage/${(project.assets.find((asset) => asset.id === job?.sourceAssetId) || project.assets[0]).storagePath}`}
                         alt="Source design"

@@ -135,7 +135,7 @@ export default function RegisterPage() {
                   </Button>
                 </form>
 
-                <div className="relative my-4">
+                {process.env.NODE_ENV !== 'production' && (<><div className="relative my-4">
                   <div className="absolute inset-0 flex items-center">
                     <div className="w-full border-t border-border" />
                   </div>
@@ -156,6 +156,7 @@ export default function RegisterPage() {
                 >
                   1-Click Quick Dev Login
                 </Button>
+                </>)}
 
                 <div className="text-center text-xs text-muted-foreground pt-2">
                   Already have an account?{' '}

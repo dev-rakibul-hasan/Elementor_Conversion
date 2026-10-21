@@ -56,7 +56,10 @@ export function optimizeElementorDocument(
       }
       if (value === undefined || value === null || value === '') continue;
       if (typeof value === 'object' && !Array.isArray(value)) {
-        if ('unit' in value && (value as any).size === undefined && (value as any).column === undefined) continue;
+        // DIMENSIONS and GAPS controls have sides/axes rather than a slider's size.
+        const hasDimension = ['size', 'top', 'right', 'bottom', 'left', 'column', 'row']
+          .some((field) => value[field] !== undefined && value[field] !== null && value[field] !== '');
+        if ('unit' in value && !hasDimension) continue;
         cleaned[key] = value;
       } else {
         cleaned[key] = value;
@@ -147,6 +150,7 @@ export function loadRootSkillInstructions(customPath?: string): {
         path.resolve(process.cwd(), 'ELEMTOR_SKILL.md'),
         path.resolve(process.cwd(), 'server/ELEMENTOR_SKILL.md'),
         path.resolve(process.cwd(), 'server/ELEMTOR_SKILL.md'),
+        path.resolve(__dirname, '../../ELEMENTOR_SKILL.md'),
         path.resolve(__dirname, '../../../ELEMENTOR_SKILL.md'),
         path.resolve(__dirname, '../../../ELEMTOR_SKILL.md'),
         path.resolve(__dirname, '../../../../server/ELEMENTOR_SKILL.md'),

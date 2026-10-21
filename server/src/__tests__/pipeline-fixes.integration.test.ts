@@ -168,4 +168,41 @@ describe.runIf(process.env.PIPELINE_ISOLATED_TESTS === 'true')('Pipeline fixes w
     expect((await post('/publish', input)).status).toBe(200);
     expect(publish).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps a failed storage deletion guarded and allows cleanup to be retried', async () => {
+    expect((await upload()).status).toBe(201);
+    const storage = getStorage();
+    const remove = vi.spyOn(storage, 'delete').mockRejectedValueOnce(new Error('Temporary storage outage'));
+    // Adapter creation is separate from the upload singleton.
+    vi.spyOn(storageFactory, 'createStorageAdapter').mockReturnValue(storage);
+    const deletion = () => fetch(`${base}/api/v1/projects/${projectId}`, { method: 'DELETE', headers: headers() });
+    expect((await deletion()).status).toBe(500);
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: projectId } })).deletingAt).not.toBeNull();
+    expect((await upload()).status).toBe(409);
+    const job = await prisma.conversionJob.findFirstOrThrow({ where: { projectId } });
+    expect((await post(`/jobs/${job.id}/retry`)).status).toBe(409);
+    await expect(recordGeneratedAsset({ projectId, fileName: 'late.png', mimeType: 'image/png', sizeBytes: 5, storageProvider: 'local', storagePath: 'late.png', sha256: 'late' })).rejects.toThrow(/deletion/);
+    remove.mockRestore();
+    expect((await deletion()).status).toBe(200);
+    expect(await prisma.project.findUnique({ where: { id: projectId } })).toBeNull();
+  });
+
+  it('dead-letters exhausted queued jobs without a remaining lease', async () => {
+    const job = await prisma.conversionJob.create({ data: { projectId, status: 'queued', attempts: 3, maxAttempts: 3 } });
+    await new ConversionWorker().recoverExpiredLeases();
+    expect((await prisma.conversionJob.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('failed');
+  });
+
+  it('returns a client error for malformed JSON instead of an internal server error', async () => {
+    const response = await fetch(`${base}/api/v1/projects`, { method: 'POST', headers: headers(), body: '{"name":' });
+    expect(response.status).toBe(400);
+    expect((await response.json() as any).error.code).toBe('INVALID_REQUEST');
+  });
+
+  it('validates WordPress URLs before saving encrypted credentials', async () => {
+    const count = await prisma.siteConnection.count({ where: { userId } });
+    const response = await post('/sites', { siteUrl: 'http://user:password@example.com/#fragment', username: 'admin', applicationPassword: 'test-only' });
+    expect(response.status).toBe(400);
+    expect(await prisma.siteConnection.count({ where: { userId } })).toBe(count);
+  });
 });

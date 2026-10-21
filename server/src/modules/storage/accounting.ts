@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
 import { env } from '../../config/index.js';
-import { NotFoundError, QuotaError } from '../../lib/errors.js';
+import { AppError, NotFoundError, QuotaError } from '../../lib/errors.js';
 
 /** Lock the owner before counting assets so concurrent uploads see committed usage.
  * Counting the ledger also repairs usage totals from older workers that omitted generated files.
@@ -24,8 +24,9 @@ export async function reserveStorage(tx: Prisma.TransactionClient, userId: strin
 
 export async function recordGeneratedAsset(data: Prisma.AssetUncheckedCreateInput, owner?: { jobId: string; workerId: string; attempt: number }) {
   return prisma.$transaction(async (tx) => {
-    const projects = await tx.$queryRaw<Array<{ userId: string }>>`SELECT "userId" FROM "Project" WHERE id = ${data.projectId} FOR UPDATE`;
+    const projects = await tx.$queryRaw<Array<{ userId: string; deletingAt: Date | null }>>`SELECT "userId", "deletingAt" FROM "Project" WHERE id = ${data.projectId} FOR UPDATE`;
     if (!projects.length) throw new NotFoundError('Project');
+    if (projects[0].deletingAt) throw new AppError('Project deletion is in progress', 409, 'PROJECT_DELETING');
     if (owner) {
       const job = await tx.conversionJob.findFirst({ where: {
         id: owner.jobId, workerId: owner.workerId, attempts: owner.attempt,

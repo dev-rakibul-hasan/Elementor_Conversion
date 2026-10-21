@@ -39,7 +39,7 @@
         },
         "flex_gap": {
           "supported_suffixes": ["_tablet", "_mobile"],
-          "type": "dimension",
+          "type": "gaps",
           "default_unit": "px"
         },
         "boxed_width": {
@@ -52,7 +52,7 @@
           "type": "slider",
           "default_unit": "%"
         },
-        "custom_height": {
+        "min_height": {
           "supported_suffixes": ["_tablet", "_mobile"],
           "type": "slider",
           "default_unit": "px"
@@ -104,7 +104,7 @@
     "button": {
       "responsive_controls": {
         "align": { "supported_suffixes": ["_tablet", "_mobile"] },
-        "button_padding": { "supported_suffixes": ["_tablet", "_mobile"], "type": "dimensions_quad", "unit": "px" },
+        "text_padding": { "supported_suffixes": ["_tablet", "_mobile"], "type": "dimensions_quad", "unit": "px" },
         "typography_font_size": { "supported_suffixes": ["_tablet", "_mobile"], "type": "slider", "unit": "px" }
       }
     },

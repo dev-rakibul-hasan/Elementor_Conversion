@@ -311,7 +311,7 @@ describe('Four-Stage Fidelity Pipeline & Boss Feedback Specifications', () => {
       expect(inputWidget.elType).toBe('widget');
       expect(inputWidget.widgetType).toBe('html');
       expect(inputWidget.settings.html).toContain('Your Business Email');
-      expect(inputWidget.settings.html).toContain('border-radius: 50px');
+      expect(inputWidget.settings.html).toContain('border-radius:50px');
     });
 
     it('should preserve composite_graphic_asset flag on image nodes without distortion', () => {
@@ -373,7 +373,7 @@ describe('Four-Stage Fidelity Pipeline & Boss Feedback Specifications', () => {
       const { document } = convertDIRToElementor(assetDIR);
       const imgWidget = document.content[0].elements[0];
       expect(imgWidget.widgetType).toBe('image');
-      expect(imgWidget.settings.image_fit).toBe('contain');
+      expect(imgWidget.settings['object-fit']).toBe('contain');
     });
   });
 

@@ -47,7 +47,7 @@ export class AIRouter {
     const timeoutMs = env.AI_REQUEST_TIMEOUT_MS || 120000;
 
     const groqKey = process.env.AI_API_KEY || env.AI_API_KEY;
-    if ((env.AI_PROVIDER === 'groq' || env.STRUCTURE_AI_PROVIDER === 'groq') && groqKey) {
+    if (groqKey) {
       this.adapters.set('groq', new GroqAdapter({
         apiKey: groqKey,
         defaultModel: process.env.GROQ_MODEL || env.GROQ_MODEL || process.env.STRUCTURE_AI_MODEL || env.STRUCTURE_AI_MODEL || process.env.AI_MODEL || env.AI_MODEL || 'openai/gpt-oss-120b',
@@ -55,14 +55,16 @@ export class AIRouter {
       }));
     }
     const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
-    if (env.ENABLE_GEMINI || geminiKey) {
+    if (env.ENABLE_GEMINI && geminiKey) {
       this.adapters.set('gemini', new GeminiAdapter({
-        apiKey: geminiKey || 'placeholder-key',
+        apiKey: geminiKey,
         defaultTimeoutMs: timeoutMs,
       }));
     }
     if (env.OPENROUTER_API_KEY) {
       this.adapters.set('openrouter', new OpenRouterAdapter({
+        apiKey: env.OPENROUTER_API_KEY,
+        defaultModel: env.OPENROUTER_MODEL,
         defaultTimeoutMs: timeoutMs,
       }));
     }
@@ -83,7 +85,7 @@ export class AIRouter {
   public getAdapter(provider: AIProvider): AIProviderAdapter {
     const adapter = this.adapters.get(provider);
     if (!adapter) {
-      return this.adapters.get('mock')!;
+      throw new AIProviderError(`AI provider '${provider}' is not configured`, provider, false);
     }
     return adapter;
   }
@@ -123,7 +125,7 @@ export class AIRouter {
         // Verify Groq vision models specifically:
         if (prov === 'groq') {
           const isGroqModel = modelOverride && KNOWN_MODEL_CAPABILITIES[modelOverride]?.provider === 'groq';
-          const candidateModel = (isGroqModel ? modelOverride : null) || env.AI_MODEL || 'openai/gpt-oss-120b';
+          const candidateModel = (isGroqModel ? modelOverride : null) || env.VISION_AI_MODEL || env.AI_MODEL || 'openai/gpt-oss-120b';
           if (isModelImageCapable(candidateModel, 'groq')) {
             return 'groq';
           }
@@ -283,10 +285,12 @@ export class AIRouter {
       return true;
     };
 
-    const reviewModel = req.role === 'review' && providerName === env.REVIEW_AI_PROVIDER ? env.REVIEW_AI_MODEL : undefined;
-    const targetModel = reviewModel && isModelValidForProvider(reviewModel, providerName) ? reviewModel :
+    const roleProvider = req.role === 'vision' ? env.VISION_AI_PROVIDER : req.role === 'structure' ? env.STRUCTURE_AI_PROVIDER : env.REVIEW_AI_PROVIDER;
+    const roleModel = providerName === roleProvider ? (req.role === 'vision' ? env.VISION_AI_MODEL : req.role === 'structure' ? env.STRUCTURE_AI_MODEL : env.REVIEW_AI_MODEL) : undefined;
+    const targetModel =
       (req.modelId && isModelValidForProvider(req.modelId, providerName))
         ? req.modelId
+        : roleModel && isModelValidForProvider(roleModel, providerName) ? roleModel
         : (providerName === 'gemini'
           ? (req.role === 'vision'
               ? (process.env.VISION_AI_MODEL || env.VISION_AI_MODEL || process.env.GEMINI_MODEL || env.GEMINI_MODEL || 'gemini-3.8-flash')
@@ -380,7 +384,7 @@ export class AIRouter {
 
       // Check if 429 quota exhaustion — put provider on cooldown to avoid retry storm
       if (err.statusCode === 429 || (err.message && err.message.includes('429'))) {
-        const retryAfterSec = err.retryAfterSeconds || 60;
+        const retryAfterSec = err.retryAfterSeconds || err.details?.retryAfter || 60;
         this.setProviderCooldown(providerName, retryAfterSec * 1000, 'Rate limit / quota exhaustion');
       }
 

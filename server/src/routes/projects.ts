@@ -5,7 +5,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireAuth, getAuthenticatedUserId } from '../middleware/auth.js';
 import { NotFoundError, ValidationError, AppError } from '../lib/errors.js';
 
 import { synchronizeStorageUsage } from '../modules/storage/accounting.js';
@@ -21,7 +21,7 @@ const projectCreateSchema = z.object({
 
 projectsRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = getAuthenticatedUserId(req);
     const projects = await prisma.project.findMany({
       where: { userId },
       orderBy: { updatedAt: 'desc' },
@@ -46,7 +46,7 @@ projectsRouter.get('/', async (req: Request, res: Response, next: NextFunction) 
 
 projectsRouter.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = getAuthenticatedUserId(req);
     const parsed = projectCreateSchema.safeParse(req.body);
     if (!parsed.success) {
       throw new ValidationError('Invalid project payload', parsed.error.format());
@@ -68,7 +68,7 @@ projectsRouter.post('/', async (req: Request, res: Response, next: NextFunction)
 
 projectsRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = (req as any).user.userId;
+    const userId = getAuthenticatedUserId(req);
     const id = req.params.id as string;
 
     const project = await prisma.project.findFirst({
@@ -99,7 +99,8 @@ projectsRouter.get('/:id', async (req: Request, res: Response, next: NextFunctio
 projectsRouter.get('/:id/job', async (req, res, next) => {
   try {
     const id = req.params.id as string;
-    if (!(await prisma.project.findFirst({ where: { id, userId: req.user!.id } }))) throw new NotFoundError('Project');
+    const userId = getAuthenticatedUserId(req);
+    if (!(await prisma.project.findFirst({ where: { id, userId } }))) throw new NotFoundError('Project');
     const job = await prisma.conversionJob.findFirst({ where: { projectId: id }, orderBy: { createdAt: 'desc' }, include: { stages: { orderBy: { attempt: 'asc' } } } });
     res.json({ success: true, data: job });
   } catch (error) { next(error); }
@@ -108,13 +109,14 @@ projectsRouter.get('/:id/job', async (req, res, next) => {
 projectsRouter.delete('/:id', async (req, res, next) => {
   try {
     const id = req.params.id as string;
-    const userId = req.user!.id;
+    const userId = getAuthenticatedUserId(req);
     await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${id} FOR UPDATE`;
       const project = await tx.project.findFirst({ where: { id, userId } });
       if (!project) throw new NotFoundError('Project');
       await tx.$queryRaw`SELECT id FROM "ConversionJob" WHERE "projectId" = ${id} FOR UPDATE`;
       if (await tx.conversionJob.count({ where: { projectId: id, status: 'publishing' } })) throw new AppError('Wait for publishing to finish before deleting the project', 409, 'JOB_BUSY');
+      await tx.project.update({ where: { id }, data: { deletingAt: new Date() } });
       await tx.conversionJob.updateMany({ where: { projectId: id, status: { notIn: ['published', 'preview_ready', 'failed', 'cancelled'] } },
         data: { status: 'cancelled', workerId: null, lockedAt: null, leaseExpiresAt: null } });
     });

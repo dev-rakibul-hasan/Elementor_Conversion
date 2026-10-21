@@ -57,8 +57,7 @@ class ConversionWorker {
             "workerId" = NULL,
             "updatedAt" = NOW()
         WHERE status NOT IN ('preview_ready', 'published', 'publishing', 'failed', 'cancelled')
-          AND "leaseExpiresAt" IS NOT NULL
-          AND "leaseExpiresAt" < NOW()
+          AND ("leaseExpiresAt" IS NULL OR "leaseExpiresAt" < NOW())
           AND attempts >= "maxAttempts";
       `;
       if (recovered > 0) {
@@ -111,7 +110,7 @@ class ConversionWorker {
           if (job) {
             this.activeJobs.add(job.id);
             // Process job asynchronously
-            this.processJobAsync(job);
+            void this.processJobAsync(job).catch((err) => logger.error({ jobId: job.id, err }, 'Unhandled job failure'));
             // Tight loop if we found work to claim
             continue;
           }
@@ -191,7 +190,9 @@ class ConversionWorker {
           UPDATE "ConversionJob"
           SET "lastHeartbeat" = NOW(),
               "leaseExpiresAt" = NOW() + INTERVAL '3 minutes'
-          WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND attempts = ${attempt};
+          WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND attempts = ${attempt}
+            AND "leaseExpiresAt" > NOW()
+            AND status NOT IN ('preview_ready', 'published', 'publishing', 'failed', 'cancelled');
         `;
         logger.debug({ jobId, workerId: this.workerId }, 'Heartbeat pulse sent');
       } catch (err) {
@@ -268,8 +269,8 @@ class ConversionWorker {
     if (currentAttempt < maxAttempts) {
       // Exponential backoff retry: schedule for retry
       logger.warn(
-        { jobId, currentAttempt, maxAttempts: this.maxAttempts },
-        `Job failed on attempt ${currentAttempt}/${this.maxAttempts}. Scheduling retry.`
+        { jobId, currentAttempt, maxAttempts },
+        `Job failed on attempt ${currentAttempt}/${maxAttempts}. Scheduling retry.`
       );
 
       try {
@@ -343,7 +344,8 @@ class ConversionWorker {
             SET "lockedAt" = NULL,
                 "leaseExpiresAt" = NULL,
                 "workerId" = NULL,
-                status = 'queued'
+                status = CASE WHEN attempts >= "maxAttempts" THEN 'failed'::"JobStatus" ELSE 'queued'::"JobStatus" END,
+                "updatedAt" = NOW()
             WHERE id = ${jobId} AND "workerId" = ${this.workerId} AND status NOT IN ('preview_ready', 'published', 'failed', 'cancelled');
           `;
         } catch {

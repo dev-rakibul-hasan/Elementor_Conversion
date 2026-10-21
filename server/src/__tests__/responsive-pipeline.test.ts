@@ -200,7 +200,7 @@ describe('Responsive Pipeline & Fixtures Test Suite', () => {
 
       // Button padding override on mobile
       const btn = textCol.elements[2];
-      expect(btn.settings?.padding_mobile).toEqual({
+      expect(btn.settings?.text_padding_mobile).toEqual({
         unit: 'px',
         top: '14',
         bottom: '14',

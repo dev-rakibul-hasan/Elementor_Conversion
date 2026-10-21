@@ -106,6 +106,7 @@ export function StageProgress({
     if (overallStatus === 'queued' || overallStatus === 'retrying') return 'pending';
     // If recorded in stages list:
     const recorded = stageMap.get(stepKey);
+    if (overallStatus === 'cancelled') return recorded?.status === 'completed' ? 'completed' : 'skipped';
     if (recorded) {
       return recorded.status;
     }
@@ -245,7 +246,7 @@ export function StageProgress({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {recorded?.durationMs && (
+                    {recorded?.durationMs != null && (
                       <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-mono">
                         <Clock className="h-3 w-3" />
                         {(recorded.durationMs / 1000).toFixed(2)}s
@@ -263,6 +264,7 @@ export function StageProgress({
                     {status === 'pending' && (
                       <Badge variant="neutral">Pending</Badge>
                     )}
+                    {status === 'skipped' && <Badge variant="neutral">Skipped</Badge>}
                   </div>
                 </div>
 

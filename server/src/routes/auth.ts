@@ -8,17 +8,17 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { AuthError, ValidationError, NotFoundError } from '../lib/errors.js';
 import { env } from '../config/index.js';
-import { requireAuth, signToken } from '../middleware/auth.js';
+import { requireAuth, signToken, getAuthenticatedUserId } from '../middleware/auth.js';
 
 export const authRouter = Router();
 
 const registerSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(6).refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password must be at most 72 UTF-8 bytes'),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().toLowerCase().email(),
   password: z.string(),
 });
 
@@ -51,6 +51,9 @@ authRouter.post('/register', async (req: Request, res: Response, next: NextFunct
       },
     });
   } catch (err) {
+    if ((err as { code?: string })?.code === 'P2002') {
+      return next(new ValidationError('Email is already registered'));
+    }
     next(err);
   }
 });
@@ -94,16 +97,12 @@ authRouter.post('/dev-login', async (_req: Request, res: Response, next: NextFun
     const devEmail =
       process.env.DEV_USER_EMAIL ||
       'developer@elementor.local';
-    let user = await prisma.user.findUnique({ where: { email: devEmail } });
-    if (!user) {
-      const defaultHash = await bcrypt.hash('devpassword123', 10);
-      user = await prisma.user.create({
-        data: {
+    const user = await prisma.user.upsert({
+        where: { email: devEmail }, update: {}, create: {
           email: devEmail,
-          passwordHash: defaultHash,
+          passwordHash: await bcrypt.hash('devpassword123', 10),
         },
       });
-    }
 
     const token = signToken({ id: user.id, email: user.email, role: user.role });
 
@@ -121,7 +120,7 @@ authRouter.post('/dev-login', async (_req: Request, res: Response, next: NextFun
 
 authRouter.get('/me', requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = req.user?.id || (req as any).user?.userId;
+    const userId = getAuthenticatedUserId(req);
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) {
       throw new AuthError('User not found');

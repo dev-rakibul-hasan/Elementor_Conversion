@@ -1,8 +1,9 @@
 import axios, { AxiosInstance, AxiosProgressEvent } from 'axios';
 import { User, useAuthStore } from '../store/auth';
+import { readStorage } from './browser-storage';
 
 export const RAW_API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-export const API_BASE_URL = RAW_API_URL.replace(/\/api\/v1\/?$/, '');
+export const API_BASE_URL = RAW_API_URL.trim().replace(/\/+$/, '').replace(/\/api\/v1$/, '');
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,
@@ -16,7 +17,7 @@ export const apiClient: AxiosInstance = axios.create({
 apiClient.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('dte_token');
+      const token = useAuthStore.getState().token || readStorage('dte_token');
       if (token && config.headers) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -186,6 +187,7 @@ export interface UsageSummary {
 
 export interface PublishPayload {
   projectId: string;
+  jobId?: string;
   siteConnectionId: string;
   resourceType: 'page' | 'template';
   title: string;

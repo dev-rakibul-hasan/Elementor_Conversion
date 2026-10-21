@@ -14,7 +14,8 @@ export function Header() {
   const pathname = usePathname();
   const { user, isAuthenticated, logout } = useAuthStore();
   const { resolvedTheme, toggleTheme } = useTheme();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMenuPath, setMobileMenuPath] = useState<string | null>(null);
+  const mobileMenuOpen = mobileMenuPath === pathname;
 
   const navLinks = [
     { href: '/', label: 'Projects' },
@@ -155,8 +156,9 @@ export function Header() {
             variant="ghost"
             size="icon"
             className="md:hidden"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            onClick={() => setMobileMenuPath(mobileMenuOpen ? null : pathname)}
             aria-label="Toggle navigation menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
@@ -187,7 +189,7 @@ export function Header() {
               >
                 <Link
                   href={link.href}
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={() => setMobileMenuPath(null)}
                   className={`block px-3 py-2 rounded-md text-base font-medium transition-colors ${
                     isActive
                       ? 'text-foreground font-semibold bg-secondary'
@@ -202,7 +204,7 @@ export function Header() {
             <div className="pt-2 border-t border-border mt-2">
               <Link
                 href="/upload"
-                onClick={() => setMobileMenuOpen(false)}
+                onClick={() => setMobileMenuPath(null)}
                 className="block w-full text-center py-2 text-sm font-semibold text-primary"
               >
                 + Start New Conversion

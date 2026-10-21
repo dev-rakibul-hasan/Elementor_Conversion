@@ -4,6 +4,7 @@
  */
 
 import { auditDIRContent } from './content-audit.js';
+import { isValidAssetRect } from './asset-bounds.js';
 import { randomUUID } from 'node:crypto';
 import { recordGeneratedAsset } from '../storage/accounting.js';
 import { Prisma } from '@prisma/client';
@@ -22,9 +23,8 @@ import {
   getDIRRepairPrompt,
   getSectionRepairPrompt,
   getElementorSelfHealingGatePrompt,
-  getElementorConversionPrompt,
 } from './prompts.js';
-import { cropAsset, getImageMetadata, computeContentHash } from '../storage/image-processor.js';
+import { cropAsset, expandClippedCompositeBounds, getImageMetadata, computeContentHash, normalizeImageOrientation } from '../storage/image-processor.js';
 import type { DIRDocument } from '../dir/types.js';
 import type { ConversionReport, ElementorValidationStats } from '../elementor/types.js';
 import type { StageName } from '@prisma/client';
@@ -130,7 +130,7 @@ function enforceFactualMetadata(
     sourceHeight: sourceAsset?.height || 900,
     analysisProvider: provider,
     analysisModel: model,
-    analysisTimestamp: doc.meta?.analysisTimestamp || new Date().toISOString(),
+    analysisTimestamp: new Date().toISOString(),
     confidenceScore: typeof doc.meta?.confidenceScore === 'number' ? doc.meta.confidenceScore : 0.9,
     schemaVersion: '1.0.0',
     promptVersion: promptVersion,
@@ -301,6 +301,13 @@ export class ConversionOrchestrator {
       if (claim.count !== 1) throw new Error('Job is actively leased by another execution');
     }
     this.executions.set(jobId, { workerId, attempt });
+    const heartbeat = !options?.workerId ? setInterval(() => {
+      void prisma.conversionJob.updateMany({ where: {
+        id: jobId, workerId, attempts: attempt, leaseExpiresAt: { gt: new Date() },
+        status: { notIn: ['cancelled', 'failed', 'published', 'preview_ready', 'publishing'] },
+      }, data: { lastHeartbeat: new Date(), leaseExpiresAt: new Date(Date.now() + 180000) } })
+        .catch((err) => logger.warn({ jobId, err }, 'Direct conversion heartbeat failed'));
+    }, 30000) : undefined;
     let currentStageName: StageName | null = null;
     let stageStartTime: Date | null = null;
 
@@ -337,6 +344,7 @@ export class ConversionOrchestrator {
         throw new Error(`Source asset image at ${sourceAsset.storagePath} is empty (0 bytes)`);
       }
 
+      sourceBuffer = await normalizeImageOrientation(sourceBuffer);
       const imageMeta = await getImageMetadata(sourceBuffer);
       if (!imageMeta || imageMeta.width <= 0 || imageMeta.height <= 0) {
         throw new Error(`Source asset at ${sourceAsset.storagePath} is not a valid image or has zero dimensions`);
@@ -447,64 +455,11 @@ export class ConversionOrchestrator {
       stageStartTime = await this.recordStageStart(jobId, 'elementor_generation', attempt);
       await this.updateStatus(jobId, 'generating_elementor', 'elementor_generation');
 
-      let initialDoc: any = null;
-      let report: ConversionReport | null = null;
-      let structureAiMeta: { provider?: string; model?: string; tokensUsed?: number } | undefined;
-
-      const hasStructureProvider =
-        (env.STRUCTURE_AI_PROVIDER && this.aiRouter.isProviderAvailable(env.STRUCTURE_AI_PROVIDER as any)) ||
-        this.aiRouter.isProviderAvailable(env.AI_PROVIDER as any);
-
-      // Attempt skill-aware AI generation if structure provider is available
-      if (hasStructureProvider && env.NODE_ENV !== 'test') {
-        try {
-          const conversionPrompt = getElementorConversionPrompt(dirDoc);
-          const aiGenRes = await this.aiRouter.execute({
-            role: 'structure',
-            messages: [
-              { role: 'system', content: conversionPrompt.systemPrompt },
-              { role: 'user', content: conversionPrompt.userPrompt },
-            ],
-            responseFormat: { type: 'json_object' },
-            sourceImageHash: dirDoc.meta.sourceImageHash,
-            promptVersion: conversionPrompt.version,
-            stageName: 'elementor_generation',
-            maxTokens: 16384,
-          });
-          if (aiGenRes.content && aiGenRes.finishReason !== 'length') {
-            const parsed = JSON.parse(aiGenRes.content);
-            const val = validateElementor(parsed);
-            if (val.valid) {
-              auditDIRContent(dirDoc, parsed);
-              initialDoc = parsed;
-              report = buildConversionReport(parsed, val.stats);
-              structureAiMeta = {
-                provider: aiGenRes.provider,
-                model: aiGenRes.model,
-                tokensUsed: (aiGenRes.usage?.inputTokens || 0) + (aiGenRes.usage?.outputTokens || 0),
-              };
-              logger.info({ jobId }, 'Stage C: Skill-aware AI Elementor generation succeeded');
-            }
-          }
-        } catch (aiGenErr: any) {
-          logger.warn(
-            { jobId, err: aiGenErr?.message },
-            'Stage C skill-aware AI generation skipped or failed; using compiler'
-          );
-        }
-      }
-
-      if (!initialDoc) {
-        const compiled = convertDIRToElementor(dirDoc);
-        initialDoc = compiled.document;
-        report = compiled.report;
-      }
-
-      // Ensure report is always initialized
-      if (!report) {
-        const val = validateElementor(initialDoc);
-        report = buildConversionReport(initialDoc, val.stats);
-      }
+      // Compile the validated DIR once. A second text model cannot see the source
+      // screenshot and must not reinterpret its measured styles or hierarchy.
+      const compiled = convertDIRToElementor(dirDoc);
+      const initialDoc = compiled.document;
+      let report: ConversionReport = compiled.report;
 
       await this.recordStageCompletion(jobId, 'elementor_generation', attempt, stageStartTime, {
         outputPayload: {
@@ -513,9 +468,6 @@ export class ConversionOrchestrator {
           widgetCount: report.widgetCount,
           widgetsUsed: report.widgetsUsed,
         },
-        providerName: structureAiMeta?.provider,
-        modelName: structureAiMeta?.model,
-        tokensUsed: structureAiMeta?.tokensUsed,
       });
 
       // Stage 6: ELEMENTOR_VALIDATION & SELF-HEALING GATE (Stage D)
@@ -663,6 +615,7 @@ export class ConversionOrchestrator {
       }
       throw err;
     } finally {
+      if (heartbeat) clearInterval(heartbeat);
       if (!options?.workerId) {
         await prisma.conversionJob.updateMany({ where: { id: jobId, workerId, attempts: attempt },
           data: { workerId: null, lockedAt: null, leaseExpiresAt: null } }).catch(() => {});
@@ -981,13 +934,35 @@ export class ConversionOrchestrator {
       }
     }
 
+    // Schema-valid DIRs (including resumed artifacts) can still lack usable
+    // screenshot coordinates. Repair them with image evidence before any writes.
+    await this.repairAssetBounds(job, sourceAsset, sourceBuffer, meta, dirDoc, imageNodes);
+
+    // A vision rectangle may be in bounds while still clipping its graphic.
+    // Expand only composites supported by connected foreground pixel evidence.
+    const composites = dirDoc.assets.filter((asset) => asset.composite_graphic_asset && !asset.placeholder &&
+      asset.sourceRect && imageNodes.some((node) => node.assetId === asset.id && !node.url));
+    const expanded = await expandClippedCompositeBounds(sourceBuffer, composites.map((asset) => asset.sourceRect!));
+    composites.forEach((asset, index) => {
+      const original = asset.sourceRect!;
+      const corrected = expanded[index];
+      if (JSON.stringify(original) === JSON.stringify(corrected)) return;
+      asset.sourceRect = corrected;
+      for (const node of imageNodes.filter((node) => node.assetId === asset.id)) {
+        // Keep the original measured pixel scale when dimensions mirror the crop.
+        if (node.styles?.width === original.width) node.styles.width = corrected.width;
+        if (node.styles?.height === original.height) node.styles.height = corrected.height;
+      }
+      dirDoc.meta.notes ??= [];
+      dirDoc.meta.notes.push(`Expanded clipped composite ${asset.id} using connected foreground pixels.`);
+      logger.info({ jobId: job.id, assetId: asset.id, original, corrected }, 'Corrected clipped composite asset bounds');
+    });
+
     // Extract only referenced assets with validated coordinates in the original screenshot.
     for (const asset of dirDoc.assets) {
       if (asset.placeholder || !imageNodes.some((node) => node.assetId === asset.id && !node.url)) continue;
       const rect = asset.sourceRect;
-      if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite) ||
-          rect.x < 0 || rect.y < 0 || rect.width < 1 || rect.height < 1 ||
-          rect.x + rect.width > meta.width || rect.y + rect.height > meta.height) {
+      if (!isValidAssetRect(rect, meta)) {
         throw new Error(`Asset ${asset.id} needs a valid sourceRect inside the source image; refusing a guessed crop`);
       }
       const cropBuffer = await cropAsset(sourceBuffer, rect);
@@ -1035,6 +1010,79 @@ export class ConversionOrchestrator {
           }
         }
       }
+    }
+  }
+
+  private async repairAssetBounds(
+    job: any,
+    sourceAsset: any,
+    sourceBuffer: Buffer,
+    meta: { width: number; height: number },
+    dirDoc: DIRDocument,
+    imageNodes: any[]
+  ): Promise<void> {
+    const unresolved = () => dirDoc.assets.filter((asset) => !asset.placeholder &&
+      imageNodes.some((node) => node.assetId === asset.id && !node.url) &&
+      !isValidAssetRect(asset.sourceRect, meta));
+
+    for (let attempt = 1; attempt <= 2 && unresolved().length; attempt++) {
+      const targets = unresolved();
+      logger.warn({ jobId: job.id, attempt, assetIds: targets.map((asset) => asset.id) },
+        'Repairing missing or out-of-bounds asset coordinates with the source image');
+      try {
+        const result = await this.aiRouter.execute({
+          role: 'vision',
+          jobId: job.id,
+          stageName: 'asset_bounds_repair',
+          promptVersion: '1.0.0',
+          bypassCache: true,
+          responseFormat: { type: 'json_object' },
+          maxTokens: 4096,
+          messages: [
+            { role: 'system', content: `Locate the requested assets in the attached original screenshot.
+Return only JSON: {"assets":[{"id":"requested asset id","sourceRect":{"x":0,"y":0,"width":1,"height":1}}]}.
+Measure each rectangle in ORIGINAL screenshot pixels, with origin at its top left.
+The screenshot is ${meta.width} x ${meta.height} pixels. Do not use normalized coordinates or coordinates relative to an inner canvas.
+Every rectangle must have x >= 0, y >= 0, width >= 1, height >= 1, x + width <= ${meta.width}, y + height <= ${meta.height}.
+Include the entire visible asset without clipping its extremities. Preserve asset IDs. Do not invent rectangles for assets you cannot locate; omit those assets.
+Return only the requested assets and their sourceRect, without changing layout, text, URLs or styles.` },
+            { role: 'user', content: [
+              { type: 'text', text: JSON.stringify({
+                assets: targets.map((asset) => ({
+                  id: asset.id, role: asset.role, description: asset.description,
+                  invalidSourceRect: asset.sourceRect,
+                  references: imageNodes.filter((node) => node.assetId === asset.id),
+                })),
+                sections: dirDoc.pages.map((page) => page.sections),
+              }) },
+              { type: 'image_url', image_url: {
+                url: `data:${sourceAsset.mimeType || 'image/png'};base64,${sourceBuffer.toString('base64')}`,
+                detail: 'high',
+              } },
+            ] },
+          ],
+        });
+        if (result.finishReason === 'length') throw new Error('Asset bounds repair was truncated');
+        const parsed = parseDIRFromAIOutput(result.content);
+        if ('error' in parsed) throw new Error(parsed.error);
+        const patches = (parsed.parsed as any)?.assets;
+        if (!Array.isArray(patches)) throw new Error('Asset bounds repair must return an assets array');
+        for (const asset of targets) {
+          const matches = patches.filter((patch: any) => patch?.id === asset.id);
+          if (matches.length !== 1 || !isValidAssetRect(matches[0].sourceRect, meta)) continue;
+          const { x, y, width, height } = matches[0].sourceRect;
+          asset.sourceRect = { x, y, width, height };
+          dirDoc.meta.notes ??= [];
+          dirDoc.meta.notes.push(`Repaired sourceRect for ${asset.id} using the original screenshot.`);
+        }
+      } catch (err) {
+        logger.warn({ jobId: job.id, attempt, err }, 'Asset bounds repair failed');
+      }
+    }
+
+    const remaining = unresolved();
+    if (remaining.length) {
+      throw new Error(`Asset ${remaining.map((asset) => asset.id).join(', ')} needs a valid sourceRect inside the source image (${meta.width}x${meta.height}) after 2 vision repair attempts; refusing a guessed crop`);
     }
   }
 

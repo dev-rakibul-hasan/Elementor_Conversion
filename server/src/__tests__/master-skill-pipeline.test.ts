@@ -289,7 +289,6 @@ describe('Master Skill Audit & Evaluation Suite — High-Fidelity Design-to-Elem
     const { document, report } = convertDIRToElementor(canonicalDirFixture);
 
     expect(report.widgetsUsed).toContain('heading');
-    expect(report.widgetsUsed).toContain('icon-list');
     expect(report.widgetsUsed).toContain('button');
     expect(report.widgetsUsed).toContain('text-editor');
     expect(report.widgetsUsed).toContain('image');
@@ -299,11 +298,13 @@ describe('Master Skill Audit & Evaluation Suite — High-Fidelity Design-to-Elem
     expect(headerEl.settings._section_role).toBe('header');
     expect(headerEl.settings.background_color).toBe('#050a04');
 
-    // Icon list inline navigation verification
-    const iconList = headerEl.elements.find((el: any) => el.widgetType === 'icon-list');
-    expect(iconList).toBeDefined();
-    expect(iconList?.settings.view).toBe('inline');
-    expect(iconList?.settings.icon_list).toHaveLength(4);
+    // Active and inactive links have distinct colors and must not be flattened.
+    const navigation = headerEl.elements[1];
+    expect(navigation.elType).toBe('container');
+    expect(navigation.settings.flex_direction).toBe('row');
+    expect(navigation.elements).toHaveLength(4);
+    expect(navigation.elements[0].settings.button_text_color).toBe('#ffffff');
+    expect(navigation.elements[1].settings.button_text_color).toBe('#b0b8af');
 
     // Hero section verification
     const heroEl = document.content[1];

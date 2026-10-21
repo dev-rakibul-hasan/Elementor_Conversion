@@ -7,7 +7,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import { env, printConfigDiagnostics } from './config/index.js';
-import { getStorage } from './modules/storage/factory.js';
+import { createStorageAdapter, getStorage } from './modules/storage/factory.js';
 import { prisma } from './lib/prisma.js';
 import { logger } from './lib/logger.js';
 import { requestId } from './middleware/requestId.js';
@@ -83,13 +83,13 @@ app.use(['/storage', '/uploads'], (_req, res, next) => {
   next();
 });
 app.use('/storage', async (req, res, next) => {
-  if (env.STORAGE_PROVIDER !== 'b2') return next();
   try {
     const key = decodeURIComponent(req.path).replace(/^\/+/, '');
     if (key.split(/[\\/]/).includes('..')) return res.sendStatus(400);
-    const asset = await prisma.asset.findFirst({ where: { storagePath: key, storageProvider: 'b2' } });
-    if (!asset) return res.sendStatus(404);
-    const buffer = await getStorage().download(key);
+    const asset = await prisma.asset.findFirst({ where: { storagePath: key } });
+    if (!asset || asset.storageProvider !== 'b2') return next();
+    const adapter = env.STORAGE_PROVIDER === 'b2' ? getStorage() : createStorageAdapter({ provider: 'b2' });
+    const buffer = await adapter.download(key);
     res.type(asset.mimeType).send(buffer);
   } catch (error) { next(error); }
 });

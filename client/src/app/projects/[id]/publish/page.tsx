@@ -69,6 +69,7 @@ export default function PublishPage() {
     try {
       const res = await api.publish.publish({
         projectId,
+        jobId: job.id,
         siteConnectionId: selectedSiteId,
         resourceType: 'page',
         title,

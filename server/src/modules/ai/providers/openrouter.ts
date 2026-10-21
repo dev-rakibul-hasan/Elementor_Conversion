@@ -253,7 +253,7 @@ export class OpenRouterAdapter implements AIProviderAdapter {
           statusCode: response.status,
           retryAfter: retryAfterSeconds,
           details: errorBody,
-        });
+        }, response.status);
       }
 
       const data = (await response.json()) as OpenRouterChatCompletionResponse;

@@ -9,15 +9,14 @@ const isTest = process.env.NODE_ENV === 'test';
 const isProd = process.env.NODE_ENV === 'production';
 
 // Helper for numeric env vars with default
-const numericString = (defaultValue: number) =>
+const numericString = (defaultValue: number, min = 1, max = Number.MAX_SAFE_INTEGER) =>
   z
     .string()
     .optional()
     .transform((val) => {
       if (val === undefined || val === '') return defaultValue;
-      const parsed = parseInt(val, 10);
-      return isNaN(parsed) ? defaultValue : parsed;
-    });
+      return /^\d+$/.test(val) ? Number(val) : NaN;
+    }).pipe(z.number().int().min(min).max(max));
 
 // Helper for boolean env vars with default
 const booleanString = (defaultValue: boolean) =>
@@ -33,8 +32,8 @@ export const envSchema = z.object({
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
     .default(isTest ? 'test' : 'development'),
-  API_PORT: numericString(4000),
-  TRUST_PROXY_HOPS: numericString(0),
+  API_PORT: numericString(4000, 1, 65535),
+  TRUST_PROXY_HOPS: numericString(0, 0),
   WEB_ORIGIN: z.string().default('http://localhost:3000'),
 
   DATABASE_URL: z
@@ -135,6 +134,16 @@ export const envSchema = z.object({
   POLLINATIONS_MAX_RETRIES: numericString(2),
 
   RUN_LIVE_AI_TESTS: booleanString(false),
+}).superRefine((config, ctx) => {
+  if (config.NODE_ENV !== 'production') return;
+  for (const field of ['JWT_SECRET', 'SITE_CREDENTIAL_ENCRYPTION_KEY'] as const) {
+    const value = config[field];
+    if (value.length < 32 || value === 'super-secret-development-jwt-token-key-32-chars-long' ||
+        value === 'test-jwt-secret-for-vitest-runner-32-chars-long' ||
+        value === '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef') {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: `${field} requires a private key of at least 32 characters in production` });
+    }
+  }
 });
 
 export type Env = z.infer<typeof envSchema>;

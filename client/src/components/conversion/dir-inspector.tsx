@@ -30,11 +30,17 @@ interface DIRInspectorProps {
   className?: string;
 }
 
+function nodeChildren(node: Record<string, unknown>): Array<Record<string, unknown>> {
+  const direct = node.children || node.elements || node.nodes || [];
+  const groups = [...(Array.isArray(node.tabs) ? node.tabs : []), ...(Array.isArray(node.items) ? node.items : [])];
+  return [...(Array.isArray(direct) ? direct : []), ...groups.flatMap((group) => Array.isArray(group?.children) ? group.children : [])];
+}
+
 function countTotalNodes(nodes: Array<Record<string, unknown>>): number {
   let count = 0;
   for (const node of nodes) {
     count++;
-    const children = (node.children || node.elements || node.nodes || []) as Array<Record<string, unknown>>;
+    const children = nodeChildren(node);
     if (children.length > 0) {
       count += countTotalNodes(children);
     }
@@ -113,7 +119,7 @@ export function DIRInspector({ dirData, className }: DIRInspectorProps) {
       nodes.forEach((n, idx) => {
         const key = `${parentKey}-node-${n.id || idx}`;
         next[key] = collapse;
-        const children = (n.children || n.elements || n.nodes || []) as Array<Record<string, unknown>>;
+        const children = nodeChildren(n);
         if (children.length > 0) collectKeys(children, key);
       });
     };
@@ -142,12 +148,12 @@ export function DIRInspector({ dirData, className }: DIRInspectorProps) {
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     const kind = String(node.kind || node.type || '').toLowerCase();
-    const text = String(node.text || node.heading || node.alt || '').toLowerCase();
+    const text = String(node.text || node.heading || node.alt || node.html || '').toLowerCase();
     const id = String(node.id || '').toLowerCase();
 
     if (kind.includes(q) || text.includes(q) || id.includes(q)) return true;
 
-    const children = (node.children || node.elements || node.nodes || []) as Array<Record<string, unknown>>;
+    const children = nodeChildren(node);
     return children.some((c) => matchesSearch(c));
   };
 
@@ -157,7 +163,7 @@ export function DIRInspector({ dirData, className }: DIRInspectorProps) {
       .map((node, nodeIdx) => {
         const nodeKey = `${parentKey}-node-${node.id || nodeIdx}`;
         const isNodeCollapsed = Boolean(collapsedNodes[nodeKey]);
-        const children = (node.children || node.elements || node.nodes || []) as Array<Record<string, unknown>>;
+        const children = nodeChildren(node);
         const hasChildren = children.length > 0;
         const kind = String(node.kind || node.type || 'element');
         const text = String(node.text || node.heading || node.alt || (node.html ? stripHtml(String(node.html)) : '') || '');

@@ -10,12 +10,23 @@ export const errorHandler: ErrorRequestHandler = (
   res: Response,
   _next: NextFunction
 ): void => {
+  if (res.headersSent) { _next(err); return; }
   const requestId = (req.id || (req.headers['x-request-id'] as string) || 'unknown') as string;
   const reqLogger = createRequestLogger(requestId, {
     method: req.method,
     path: req.path,
     ip: req.ip,
   });
+
+  const bodyError = err as Error & { type?: string; status?: number };
+  if (bodyError.type === 'entity.parse.failed' || bodyError.type === 'entity.too.large' || err instanceof URIError) {
+    const tooLarge = bodyError.type === 'entity.too.large';
+    res.status(tooLarge ? 413 : 400).json({ success: false, error: {
+      code: tooLarge ? 'PAYLOAD_TOO_LARGE' : 'INVALID_REQUEST',
+      message: tooLarge ? 'Request body exceeds the maximum allowed size' : 'Malformed request data', requestId,
+    } });
+    return;
+  }
 
   // Handle custom AppError and subclasses
   if (err instanceof AppError) {

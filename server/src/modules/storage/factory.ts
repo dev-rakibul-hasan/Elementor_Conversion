@@ -63,6 +63,7 @@ export function createStorageAdapter(config?: Partial<StorageConfig>): StorageAd
  * If specific config overrides are provided, instantiates a customized adapter.
  */
 export function getStorage(config?: Partial<StorageConfig>): StorageAdapter {
+  if (config && storageInstance) return createStorageAdapter(config);
   if (!storageInstance) {
     storageInstance = createStorageAdapter(config);
   }
