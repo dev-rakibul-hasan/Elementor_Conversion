@@ -740,22 +740,28 @@ export class ElementorGenerator {
     this.elementCount++;
     this.widgetsUsed.add('image');
 
-    let imageUrl = (node as any).url || '';
+    let imageUrl = typeof node.url === 'string' ? node.url.trim() : '';
+    const asset = node.assetId ? dir.assets?.find((item) => item.id === node.assetId) : undefined;
+    const assetUrl = asset && 'url' in asset && typeof asset.url === 'string' ? asset.url : '';
     if (!imageUrl && node.assetId) {
-      const asset = dir.assets?.find((a) => a.id === node.assetId);
-      if (asset) {
-        imageUrl = asset.placeholder || (asset as any).url || '';
-      }
+      imageUrl =
+        this.options.assetUrlResolver?.(node.assetId)?.trim() ||
+        asset?.placeholder ||
+        assetUrl ||
+        '';
     }
 
-    if (!imageUrl || (typeof imageUrl === 'string' && imageUrl.trim().length === 0)) {
-      const firstValidAsset = dir.assets?.find((a) => a.placeholder || (a as any).url);
-      if (firstValidAsset) {
-        imageUrl = firstValidAsset.placeholder || (firstValidAsset as any).url;
-      } else {
-        const altText = encodeURIComponent(node.alt || 'Image');
-        imageUrl = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16">${altText}</text></svg>`;
-      }
+    if (!imageUrl) {
+      const message = `Image ${node.id} has no resolved asset URL; a placeholder was generated`;
+      this.warnings.push(message);
+      this.diagnostics.push({
+        nodeId: node.id,
+        level: 'warning',
+        code: 'UNRESOLVED_IMAGE_ASSET',
+        message,
+      });
+      const altText = encodeURIComponent(node.alt || 'Image');
+      imageUrl = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="%231e293b"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="%2394a3b8" font-family="sans-serif" font-size="16">${altText}</text></svg>`;
     }
 
     const isLogo =
@@ -1726,4 +1732,3 @@ export function convertDIRToElementor(
 }
 
 export const generateElementorTemplate = convertDIRToElementor;
-
