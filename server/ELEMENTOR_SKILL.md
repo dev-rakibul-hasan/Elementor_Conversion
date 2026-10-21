@@ -1,5 +1,8 @@
 # Master Skill Specification: High-Fidelity Design-to-Elementor Pipeline
 
+> **Skill Set:** Elementor Image-to-Template Skill Set
+> **Version:** 2.0.0
+> **Source Snapshot:** Elementor Core 4.3.5 verified widget registrations
 > **Skill Set:** Elementor Image-to-Template Skill Set  
 > **Version:** 2.0.0  
 > **Source Snapshot:** Elementor Core 4.3.5 verified widget registrations  
@@ -690,6 +693,28 @@ Source: `includes/widgets/image-gallery.php`
     "gallery_display_caption": "none",
     "gallery_link": "none",
     "open_lightbox": "no"
+
+### Divider — `divider`
+
+Source: `includes/widgets/divider.php`
+
+```json
+{
+  "id": "w0000006",
+  "elType": "widget",
+  "widgetType": "divider",
+  "settings": {
+    "style": "solid",
+    "width": {
+      "unit": "%",
+      "size": 60
+    },
+    "align": "center",
+    "weight": {
+      "unit": "px",
+      "size": 2
+    },
+    "color": "#D9DEE7"
   },
   "elements": []
 }
@@ -735,6 +760,20 @@ Source: `includes/widgets/icon-list.php`
       }
     ],
     "link_click": "full_width"
+### Spacer — `spacer`
+
+Source: `includes/widgets/spacer.php`
+
+```json
+{
+  "id": "w0000007",
+  "elType": "widget",
+  "widgetType": "spacer",
+  "settings": {
+    "space": {
+      "unit": "px",
+      "size": 48
+    }
   },
   "elements": []
 }
@@ -757,6 +796,29 @@ Source: `includes/widgets/counter.php`
     "duration": 2000,
     "title": "Completed projects",
     "title_tag": "div"
+### Image Box — `image-box`
+
+Source: `includes/widgets/image-box.php`
+
+```json
+{
+  "id": "w0000008",
+  "elType": "widget",
+  "widgetType": "image-box",
+  "settings": {
+    "image": {
+      "id": 102,
+      "url": "https://example.com/card-image.jpg"
+    },
+    "title_text": "Feature title",
+    "description_text": "Short descriptive copy for this feature.",
+    "title_size": "h3",
+    "position": "top",
+    "link": {
+      "url": "https://example.com/feature",
+      "is_external": "",
+      "nofollow": ""
+    }
   },
   "elements": []
 }
@@ -782,10 +844,427 @@ Source: `includes/widgets/progress.php`
     },
     "display_percentage": "show",
     "inner_text": ""
+### Google Maps — `google_maps`
+
+Source: `includes/widgets/google-maps.php`
+
+```json
+{
+  "id": "w0000009",
+  "elType": "widget",
+  "widgetType": "google_maps",
+  "settings": {
+    "address": "Dhaka, Bangladesh",
+    "zoom": {
+      "size": 12
+    },
+    "height": {
+      "unit": "px",
+      "size": 320
+    }
   },
   "elements": []
 }
 ```
+
+### Testimonial — `testimonial`
+
+Source: `includes/widgets/testimonial.php`
+
+```json
+{
+  "id": "w0000018",
+  "elType": "widget",
+  "widgetType": "testimonial",
+  "settings": {
+    "testimonial_content": "The team delivered excellent work and communication.",
+    "testimonial_image": {
+      "id": 103,
+      "url": "https://example.com/customer.jpg"
+    },
+    "testimonial_name": "Alex Morgan",
+    "testimonial_job": "Customer",
+    "image_size": "thumbnail",
+    "testimonial_alignment": "center"
+### Icon — `icon`
+
+Source: `includes/widgets/icon.php`
+
+```json
+{
+  "id": "w0000010",
+  "elType": "widget",
+  "widgetType": "icon",
+  "settings": {
+    "selected_icon": {
+      "value": "fas fa-star",
+      "library": "fa-solid"
+    },
+    "view": "stacked",
+    "shape": "circle",
+    "link": {
+      "url": "https://example.com/",
+      "is_external": "",
+      "nofollow": ""
+    }
+  },
+  "elements": []
+}
+```
+
+### Tabs — `tabs`
+
+Source: `includes/widgets/tabs.php`
+
+```json
+{
+  "id": "w0000019",
+  "elType": "widget",
+  "widgetType": "tabs",
+  "settings": {
+    "tabs": [
+      {
+        "_id": "tab00001",
+        "tab_title": "Overview",
+        "tab_content": "<p>Overview content.</p>"
+      },
+      {
+        "_id": "tab00002",
+        "tab_title": "Details",
+        "tab_content": "<p>Details content.</p>"
+      }
+    ],
+    "type": "horizontal",
+    "tabs_align_horizontal": ""
+### Icon Box — `icon-box`
+
+Source: `includes/widgets/icon-box.php`
+
+```json
+{
+  "id": "w0000011",
+  "elType": "widget",
+  "widgetType": "icon-box",
+  "settings": {
+    "selected_icon": {
+      "value": "fas fa-check",
+      "library": "fa-solid"
+    },
+    "view": "stacked",
+    "shape": "circle",
+    "title_text": "Trusted Quality",
+    "description_text": "Explain the benefit in one or two lines.",
+    "title_size": "h3",
+    "position": "block-start",
+    "link": {
+      "url": "https://example.com/quality",
+      "is_external": "",
+      "nofollow": ""
+    }
+  },
+  "elements": []
+}
+```
+
+### Accordion — `accordion`
+
+Source: `includes/widgets/accordion.php`
+
+```json
+{
+  "id": "w0000020",
+  "elType": "widget",
+  "widgetType": "accordion",
+  "settings": {
+    "tabs": [
+      {
+        "_id": "acc00001",
+        "tab_title": "What is included?",
+        "tab_content": "<p>Describe what is included.</p>"
+      },
+      {
+        "_id": "acc00002",
+        "tab_title": "How does it work?",
+        "tab_content": "<p>Explain the process.</p>"
+      }
+    ],
+    "title_html_tag": "div"
+### Star Rating — `star-rating`
+
+Source: `includes/widgets/star-rating.php`
+
+```json
+{
+  "id": "w0000012",
+  "elType": "widget",
+  "widgetType": "star-rating",
+  "settings": {
+    "rating_scale": "5",
+    "rating": 4.5,
+    "star_style": "star_fontawesome",
+    "title": "Customer rating",
+    "align": "center"
+  },
+  "elements": []
+}
+```
+
+### Toggle — `toggle`
+
+Source: `includes/widgets/toggle.php`
+
+```json
+{
+  "id": "w0000021",
+  "elType": "widget",
+  "widgetType": "toggle",
+  "settings": {
+    "tabs": [
+      {
+        "_id": "tgl00001",
+        "tab_title": "More information",
+        "tab_content": "<p>Additional details here.</p>"
+      }
+    ],
+    "title_html_tag": "div"
+### Image Carousel — `image-carousel`
+
+Source: `includes/widgets/image-carousel.php`
+
+```json
+{
+  "id": "w0000013",
+  "elType": "widget",
+  "widgetType": "image-carousel",
+  "settings": {
+    "carousel_name": "Project gallery",
+    "carousel": [
+      {
+        "id": 101,
+        "url": "https://example.com/gallery-1.jpg"
+      },
+      {
+        "id": 102,
+        "url": "https://example.com/gallery-2.jpg"
+      }
+    ],
+    "thumbnail_size": "medium",
+    "slides_to_show": "2",
+    "infinite": "yes"
+  },
+  "elements": []
+}
+```
+
+### Social Icons — `social-icons`
+
+Source: `includes/widgets/social-icons.php`
+
+```json
+{
+  "id": "w0000022",
+  "elType": "widget",
+  "widgetType": "social-icons",
+  "settings": {
+    "social_icon_list": [
+      {
+        "_id": "soc00001",
+        "social_icon": {
+          "value": "fab fa-facebook",
+          "library": "fa-brands"
+        },
+        "link": {
+          "url": "https://facebook.com/example",
+          "is_external": "true",
+          "nofollow": "true"
+        }
+      },
+      {
+        "_id": "soc00002",
+        "social_icon": {
+          "value": "fab fa-instagram",
+          "library": "fa-brands"
+        },
+        "link": {
+          "url": "https://instagram.com/example",
+          "is_external": "true",
+          "nofollow": "true"
+        }
+      }
+    ],
+    "shape": "circle",
+    "align": "center",
+    "icon_size": {
+      "unit": "px",
+      "size": 18
+    }
+### Basic Gallery — `image-gallery`
+
+Source: `includes/widgets/image-gallery.php`
+
+```json
+{
+  "id": "w0000014",
+  "elType": "widget",
+  "widgetType": "image-gallery",
+  "settings": {
+    "wp_gallery": [
+      {
+        "id": 101,
+        "url": "https://example.com/gallery-1.jpg"
+      },
+      {
+        "id": 102,
+        "url": "https://example.com/gallery-2.jpg"
+      }
+    ],
+    "thumbnail_size": "medium",
+    "gallery_columns": "2",
+    "gallery_display_caption": "none",
+    "gallery_link": "none",
+    "open_lightbox": "no"
+  },
+  "elements": []
+}
+```
+
+### Alert — `alert`
+
+Source: `includes/widgets/alert.php`
+
+```json
+{
+  "id": "w0000023",
+  "elType": "widget",
+  "widgetType": "alert",
+  "settings": {
+    "alert_type": "info",
+    "alert_title": "Important notice",
+    "alert_description": "This is the message shown in the alert.",
+    "show_dismiss": "show"
+### Icon List — `icon-list`
+
+Source: `includes/widgets/icon-list.php`
+
+```json
+{
+  "id": "w0000015",
+  "elType": "widget",
+  "widgetType": "icon-list",
+  "settings": {
+    "view": "traditional",
+    "icon_list": [
+      {
+        "_id": "a1b2c3d",
+        "text": "Fast delivery",
+        "selected_icon": {
+          "value": "fas fa-check",
+          "library": "fa-solid"
+        },
+        "link": {
+          "url": "",
+          "is_external": "",
+          "nofollow": ""
+        }
+      },
+      {
+        "_id": "a1b2c3e",
+        "text": "Secure checkout",
+        "selected_icon": {
+          "value": "fas fa-check",
+          "library": "fa-solid"
+        },
+        "link": {
+          "url": "",
+          "is_external": "",
+          "nofollow": ""
+        }
+      }
+    ],
+    "link_click": "full_width"
+  },
+  "elements": []
+}
+```
+
+### SoundCloud / Audio — `audio`
+
+Source: `includes/widgets/audio.php`
+
+```json
+{
+  "id": "w0000024",
+  "elType": "widget",
+  "widgetType": "audio",
+  "settings": {
+    "link": {
+      "url": "https://soundcloud.com/example/track",
+      "is_external": "",
+      "nofollow": ""
+    },
+    "visual": "no",
+    "sc_auto_play": "",
+    "sc_show_artwork": "yes"
+
+### Counter — `counter`
+
+Source: `includes/widgets/counter.php`
+
+```json
+{
+  "id": "w0000016",
+  "elType": "widget",
+  "widgetType": "counter",
+  "settings": {
+    "starting_number": 0,
+    "ending_number": 250,
+    "prefix": "",
+    "suffix": "+",
+    "duration": 2000,
+    "title": "Completed projects",
+    "title_tag": "div"
+  },
+  "elements": []
+}
+```
+
+### Shortcode — `shortcode`
+
+Source: `includes/widgets/shortcode.php`
+
+```json
+{
+  "id": "w0000025",
+  "elType": "widget",
+  "widgetType": "shortcode",
+  "settings": {
+    "shortcode": "[example_shortcode id=\"123\"]"
+### Progress Bar — `progress`
+
+Source: `includes/widgets/progress.php`
+
+```json
+{
+  "id": "w0000017",
+  "elType": "widget",
+  "widgetType": "progress",
+  "settings": {
+    "title": "Project completion",
+    "title_tag": "span",
+    "title_display": "yes",
+    "progress_type": "",
+    "percent": {
+      "size": 75,
+      "unit": "%"
+    },
+    "display_percentage": "show",
+    "inner_text": ""
+  },
+  "elements": []
+}
+```
+
+### HTML — `html`
 
 ### Testimonial — `testimonial`
 
