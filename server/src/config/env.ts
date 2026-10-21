@@ -98,6 +98,7 @@ export const envSchema = z.object({
 
   CONVERSION_WORKER_CONCURRENCY: numericString(2),
   CONVERSION_MAX_ATTEMPTS: numericString(3),
+  ENABLE_EMBEDDED_WORKER: booleanString(true),
 
   VISION_AI_PROVIDER: z
     .enum(['gemini', 'groq', 'openrouter', 'mock'])

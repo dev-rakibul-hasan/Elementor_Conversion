@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Header } from '../../../../components/layout/header';
@@ -8,9 +8,10 @@ import { Button } from '../../../../components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../../../components/ui/card';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
+import { ConnectionStatus } from '../../../../components/sites/connection-status';
 import { api, Project, ConversionJobWithStages, SiteConnection, PublishResult } from '../../../../lib/api';
 import toast from 'react-hot-toast';
-import { ArrowLeft, Send, CheckCircle2, AlertTriangle, ExternalLink, Globe, Layers } from 'lucide-react';
+import { ArrowLeft, Send, CheckCircle2, AlertTriangle, ExternalLink, Globe, Layers, Settings, Zap } from 'lucide-react';
 
 export default function PublishPage() {
   const params = useParams();
@@ -27,28 +28,31 @@ export default function PublishPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const projRes = await api.projects.get(projectId);
-        if (projRes) {
-          setProject(projRes);
-          setTitle(projRes.name);
-          const latestJob = projRes.conversionJobs?.[0];
-          setJob(latestJob || null);
-        }
-
-        const sitesRes = await api.sites.list();
-        if (sitesRes && sitesRes.length > 0) {
-          setSites(sitesRes);
-          setSelectedSiteId(sitesRes[0].id);
-        }
-      } catch {
-        toast.error('Failed to load publish context');
+  const loadData = useCallback(async () => {
+    try {
+      const projRes = await api.projects.get(projectId);
+      if (projRes) {
+        setProject(projRes);
+        setTitle(projRes.name);
+        const latestJob = projRes.conversionJobs?.[0];
+        setJob(latestJob || null);
       }
+
+      const sitesRes = await api.sites.list();
+      if (sitesRes && sitesRes.length > 0) {
+        setSites(sitesRes);
+        setSelectedSiteId((prev) => prev || sitesRes[0].id);
+      }
+    } catch {
+      toast.error('Failed to load publish context');
     }
-    loadData();
   }, [projectId]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const selectedSite = sites.find((s) => s.id === selectedSiteId) || sites[0];
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,9 +176,17 @@ export default function PublishPage() {
           <form onSubmit={handlePublish} className="space-y-6">
             <Card className="bg-card border-border">
               <CardHeader>
-                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                  <Globe className="w-5 h-5 text-primary" /> Target WordPress Site
-                </CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                    <Globe className="w-5 h-5 text-primary" /> Target WordPress Site
+                  </CardTitle>
+                  <Link
+                    href="/settings"
+                    className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                  >
+                    <Settings className="w-3.5 h-3.5" /> Manage Sites
+                  </Link>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {sites.length === 0 ? (
@@ -192,21 +204,31 @@ export default function PublishPage() {
                     </div>
                   </div>
                 ) : (
-                  <div>
-                    <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1.5">
-                      Target Destination
-                    </label>
-                    <select
-                      className="w-full bg-card border border-border rounded-lg p-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                      value={selectedSiteId}
-                      onChange={(e) => setSelectedSiteId(e.target.value)}
-                    >
-                      {sites.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name || s.siteUrl} ({s.siteUrl})
-                        </option>
-                      ))}
-                    </select>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block mb-1.5">
+                        Select Target WordPress Destination
+                      </label>
+                      <select
+                        className="w-full bg-card border border-border rounded-lg p-2.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                        value={selectedSiteId}
+                        onChange={(e) => setSelectedSiteId(e.target.value)}
+                      >
+                        {sites.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name || s.siteUrl} ({s.siteUrl})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Live Connection Status & Verification Card */}
+                    {selectedSite && (
+                      <ConnectionStatus
+                        site={selectedSite}
+                        onRefresh={loadData}
+                      />
+                    )}
                   </div>
                 )}
 
@@ -244,40 +266,45 @@ export default function PublishPage() {
                           : 'border-border bg-card hover:bg-secondary/60'
                       }`}
                     >
-                      <div className="font-semibold text-sm text-foreground">Publish Immediately</div>
+                      <div className="font-semibold text-sm text-foreground">Publish Live Immediately</div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Page URL is immediately live on the target WordPress installation.
+                        Instantly makes page publicly accessible at permalink.
                       </p>
                     </div>
                   </div>
                 </div>
 
                 <div className="pt-2">
-                  <label className="flex items-start gap-2.5 cursor-pointer text-xs sm:text-sm text-foreground">
+                  <label className="flex items-start gap-3 p-3 rounded-lg border border-border bg-secondary/30 cursor-pointer text-xs">
                     <input
                       type="checkbox"
                       checked={confirmed}
                       onChange={(e) => setConfirmed(e.target.checked)}
-                      className="mt-0.5 rounded border-border bg-card text-primary focus:ring-primary"
+                      className="mt-0.5 rounded border-border text-primary focus:ring-primary"
                     />
-                    <span>
-                      I authorize publishing this Elementor template directly to the designated WordPress site.
+                    <span className="text-muted-foreground">
+                      I confirm publishing to WordPress <code className="text-xs bg-muted px-1 py-0.5 rounded">post_type: &apos;page&apos;</code> with <strong>Elementor Canvas</strong> page template layout.
                     </span>
                   </label>
                 </div>
               </CardContent>
+
               <CardFooter className="flex justify-end gap-3 border-t border-border pt-4">
-                <Button type="button" variant="outline" onClick={() => router.push(`/projects/${projectId}`)}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => router.push(`/projects/${projectId}`)}
+                  disabled={isPublishing}
+                >
                   Cancel
                 </Button>
                 <Button
                   type="submit"
-                  disabled={isPublishing || !confirmed || sites.length === 0}
                   isLoading={isPublishing}
-                  className="flex items-center gap-2"
+                  disabled={isPublishing || sites.length === 0 || !confirmed}
+                  leftIcon={<Send className="w-4 h-4" />}
                 >
-                  <Send className="w-4 h-4" />
-                  {isPublishing ? 'Publishing via MCP...' : `Publish as ${publishMode}`}
+                  {isPublishing ? 'Publishing to WordPress...' : `Publish to WordPress (${publishMode})`}
                 </Button>
               </CardFooter>
             </Card>

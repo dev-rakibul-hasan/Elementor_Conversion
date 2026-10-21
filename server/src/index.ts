@@ -1,3 +1,4 @@
+import { ConversionWorker } from './worker.js';
 import dotenv from 'dotenv';
 dotenv.config();
 

@@ -361,7 +361,9 @@ class ConversionWorker {
     }
 
     logger.info('Worker shutdown completed cleanly.');
-    process.exit(0);
+    if (isDirectRun) {
+      process.exit(0);
+    }
   }
 
   private sleep(ms: number): Promise<void> {
@@ -369,8 +371,16 @@ class ConversionWorker {
   }
 }
 
-// Start worker when launched as CLI script
-if (process.env.NODE_ENV !== 'test') {
+const isDirectRun = Boolean(
+  process.argv[1] && (
+    process.argv[1].endsWith('worker.ts') ||
+    process.argv[1].endsWith('worker.js') ||
+    process.argv[1].endsWith('worker.mjs')
+  )
+);
+
+// Start worker when launched directly as CLI script
+if (process.env.NODE_ENV !== 'test' && isDirectRun) {
   printConfigDiagnostics();
   const worker = new ConversionWorker();
 
