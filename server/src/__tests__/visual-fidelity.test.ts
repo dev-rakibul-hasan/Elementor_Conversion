@@ -276,4 +276,37 @@ describe('Visual Fidelity Rectification & Layout Fidelity', () => {
     expect(imageWidget?.settings.image.url).toBe('/storage/projects/p1/assets/asset_hero_graphic.png');
     expect(imageWidget?.settings.image.id).toBe('asset_hero_graphic');
   });
+
+  it('resolves images only from their matching asset and reports missing references', () => {
+    const dirWithUnmatchedImage = JSON.parse(JSON.stringify(darkLandingPageDir));
+    dirWithUnmatchedImage.assets[0].placeholder = '/storage/projects/p1/assets/unrelated-image.png';
+    const imageNode = dirWithUnmatchedImage.pages[0].sections[1].children.find(
+      (node: { kind: string }) => node.kind === 'image'
+    );
+    delete imageNode.assetId;
+
+    const { document, report } = convertDIRToElementor(dirWithUnmatchedImage);
+    const heroSection = document.content.find((el) => el.settings._section_role === 'hero');
+    const imageWidget = heroSection?.elements.find((el) => el.widgetType === 'image');
+
+    expect(imageWidget?.settings.image.url).toContain('data:image/svg+xml');
+    expect(imageWidget?.settings.image.url).not.toBe('/storage/projects/p1/assets/unrelated-image.png');
+    expect(report.diagnostics).toContainEqual(expect.objectContaining({
+      nodeId: imageNode.id,
+      level: 'warning',
+      code: 'UNRESOLVED_IMAGE_ASSET',
+    }));
+  });
+
+  it('uses the configured asset URL resolver for the referenced asset', () => {
+    const { document } = convertDIRToElementor(darkLandingPageDir, {
+      assetUrlResolver: (assetId) => assetId === 'asset_hero_graphic'
+        ? 'https://assets.example.test/hero.png'
+        : undefined,
+    });
+    const heroSection = document.content.find((el) => el.settings._section_role === 'hero');
+    const imageWidget = heroSection?.elements.find((el) => el.widgetType === 'image');
+
+    expect(imageWidget?.settings.image.url).toBe('https://assets.example.test/hero.png');
+  });
 });
