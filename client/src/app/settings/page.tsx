@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '../../components/ui/ca
 import { Input } from '../../components/ui/input';
 import { Badge } from '../../components/ui/badge';
 import { useTheme } from '../../components/theme-provider';
+import { ConnectionStatus } from '../../components/sites/connection-status';
 import { api, SiteConnection } from '../../lib/api';
 import toast from 'react-hot-toast';
 import {
@@ -34,13 +35,14 @@ export default function SettingsPage() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   const { data: sites = [], refetch: fetchSites } = useQuery({
-    queryKey: ['sites', token], queryFn: api.sites.list, enabled: !!token,
+    queryKey: ['sites', token],
+    queryFn: api.sites.list,
+    enabled: !!token,
   });
   const [newSiteUrl, setNewSiteUrl] = useState('');
   const [newSiteName, setNewSiteName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [testingId, setTestingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const handleAddSite = async (e: React.FormEvent) => {
@@ -76,237 +78,202 @@ export default function SettingsPage() {
       await api.sites.delete(id);
       queryClient.setQueryData<SiteConnection[]>(['sites', token], (current) => current?.filter((site) => site.id !== id));
       toast.success('WordPress connection deleted');
-    } catch (err) { toast.error(err instanceof Error ? err.message : 'Failed to delete connection'); }
-  };
-
-  const handleTestConnection = async (id: string) => {
-    setTestingId(id);
-    try {
-      const res = await api.sites.test(id);
-      if (res?.ok) {
-        toast.success('Connection verified! MCP capabilities discovered.');
-      } else {
-        toast.error(res?.message || 'Connection test failed');
-      }
-      fetchSites();
-    } catch {
-      toast.error('Connection test failed');
-    } finally {
-      setTestingId(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete connection');
     }
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       <Header />
-      <motion.main
-        variants={staggerContainer}
-        initial="hidden"
-        animate="visible"
-        className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 md:p-8 space-y-8"
-      >
-        <motion.div variants={staggerItem}>
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 md:p-8 space-y-8">
+        <div>
           <Link
             href="/"
             className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-2"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
           </Link>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-            System & Workspace Settings
-          </h1>
+          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">Settings &amp; Integrations</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure appearance, target WordPress endpoints, and inspect conversion engine parameters.
+            Manage your connected WordPress destinations, Elementor MCP publishing rules, and preferences.
           </p>
-        </motion.div>
+        </div>
 
-        {/* Appearance & Theme Preferences */}
-        <motion.div variants={staggerItem}>
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                <Sun className="w-5 h-5 text-primary" /> Appearance & Theme Mode
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                Customize your visual interface. Themes switch smoothly without flash or page reloads.
-              </p>
-              <div className="grid grid-cols-3 gap-3">
-                <button
-                  type="button"
-                  onClick={() => setTheme('light')}
-                  className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
-                    theme === 'light'
-                      ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary'
-                      : 'border-border bg-card hover:bg-secondary/60'
-                  }`}
-                >
-                  <Sun className={`w-5 h-5 ${theme === 'light' ? 'text-amber-500' : 'text-muted-foreground'}`} />
-                  <span className="text-xs font-semibold text-foreground">Light Mode</span>
-                  <span className="text-[10px] text-muted-foreground">Crisp clean UI</span>
-                </button>
+        <motion.div variants={staggerContainer} initial="initial" animate="animate" className="space-y-6">
+          {/* Theme Settings */}
+          <motion.div variants={staggerItem}>
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                  <Sun className="w-5 h-5 text-primary" /> Appearance &amp; Color Theme
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setTheme('light')}
+                    className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
+                      theme === 'light'
+                        ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary'
+                        : 'border-border bg-card hover:bg-secondary/60'
+                    }`}
+                  >
+                    <Sun className={`w-5 h-5 ${theme === 'light' ? 'text-amber-500' : 'text-muted-foreground'}`} />
+                    <span className="text-xs font-semibold text-foreground">Light Mode</span>
+                    <span className="text-[10px] text-muted-foreground">Crisp high contrast</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setTheme('dark')}
-                  className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
-                    theme === 'dark'
-                      ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary'
-                      : 'border-border bg-card hover:bg-secondary/60'
-                  }`}
-                >
-                  <Moon className={`w-5 h-5 ${theme === 'dark' ? 'text-indigo-400' : 'text-muted-foreground'}`} />
-                  <span className="text-xs font-semibold text-foreground">Dark Mode</span>
-                  <span className="text-[10px] text-muted-foreground">Deep obsidian slate</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setTheme('dark')}
+                    className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
+                      theme === 'dark'
+                        ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary'
+                        : 'border-border bg-card hover:bg-secondary/60'
+                    }`}
+                  >
+                    <Moon className={`w-5 h-5 ${theme === 'dark' ? 'text-indigo-400' : 'text-muted-foreground'}`} />
+                    <span className="text-xs font-semibold text-foreground">Dark Mode</span>
+                    <span className="text-[10px] text-muted-foreground">Deep obsidian slate</span>
+                  </button>
 
-                <button
-                  type="button"
-                  onClick={() => setTheme('system')}
-                  className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
-                    theme === 'system'
-                      ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary'
-                      : 'border-border bg-card hover:bg-secondary/60'
-                  }`}
-                >
-                  <Laptop className={`w-5 h-5 ${theme === 'system' ? 'text-primary' : 'text-muted-foreground'}`} />
-                  <span className="text-xs font-semibold text-foreground">System</span>
-                  <span className="text-[10px] text-muted-foreground">Sync with OS</span>
-                </button>
-              </div>
-            </CardContent>
-          </Card>
-        </motion.div>
+                  <button
+                    type="button"
+                    onClick={() => setTheme('system')}
+                    className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${
+                      theme === 'system'
+                        ? 'border-primary bg-primary/10 shadow-sm ring-1 ring-primary'
+                        : 'border-border bg-card hover:bg-secondary/60'
+                    }`}
+                  >
+                    <Laptop className={`w-5 h-5 ${theme === 'system' ? 'text-primary' : 'text-muted-foreground'}`} />
+                    <span className="text-xs font-semibold text-foreground">System</span>
+                    <span className="text-[10px] text-muted-foreground">Sync with OS</span>
+                  </button>
+                </div>
+              </CardContent>
+            </Card>
+          </motion.div>
 
-        {/* AI Provider Architecture Overview */}
-        <motion.div variants={staggerItem}>
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                <Zap className="w-5 h-5 text-amber-500" /> AI Provider & Conversion Architecture
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
-                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Vision Model</div>
-                  <div className="font-semibold text-foreground text-sm mt-1">Configured vision provider</div>
-                  <Badge variant="info" className="mt-2 text-[10px]">Stage A & B (DIR Parser)</Badge>
+          {/* AI Provider Architecture Overview */}
+          <motion.div variants={staggerItem}>
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-amber-500" /> AI Provider &amp; Conversion Architecture
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Vision Model</div>
+                    <div className="font-semibold text-foreground text-sm mt-1">Google Gemini Flash-Lite</div>
+                    <Badge variant="info" className="mt-2 text-[10px]">Multimodal Vision (1.1s)</Badge>
+                  </div>
+                  <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Structure Engine</div>
+                    <div className="font-semibold text-foreground text-sm mt-1">Deterministic DIR compiler</div>
+                    <Badge variant="info" className="mt-2 text-[10px]">Elementor AST</Badge>
+                  </div>
+                  <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
+                    <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Review &amp; Fallback</div>
+                    <div className="font-semibold text-foreground text-sm mt-1">OpenRouter Claude-3.5</div>
+                    <Badge variant="info" className="mt-2 text-[10px]">Self-Healing Gate</Badge>
+                  </div>
                 </div>
-                <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
-                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Structure Engine</div>
-                  <div className="font-semibold text-foreground text-sm mt-1">Deterministic DIR compiler</div>
-                  <Badge variant="info" className="mt-2 text-[10px]">Stage C (Elementor AST)</Badge>
-                </div>
-                <div className="border border-border rounded-xl p-3.5 bg-secondary/30 transition-colors">
-                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Review & Fallback</div>
-                  <div className="font-semibold text-foreground text-sm mt-1">Configured review provider</div>
-                  <Badge variant="info" className="mt-2 text-[10px]">Stage D (Validation Gate)</Badge>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Matching image, input, model and prompt versions can reuse cached AI responses. Elementor compilation and content checks run locally.
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* WordPress MCP Site Connections */}
-        <motion.div variants={staggerItem}>
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                <Globe className="w-5 h-5 text-primary" /> Connected WordPress Destinations (MCP)
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {sites.length > 0 && (
-                <div className="space-y-3">
-                  {sites.map((site) => (
-                    <div
-                      key={site.id}
-                      className="border border-border rounded-xl p-4 bg-secondary/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-                    >
-                      <div>
-                        <div className="font-semibold text-foreground flex items-center gap-2">
-                          {site.name || 'Unnamed Site'}
-                          {site.isMcpAvailable && (
-                            <Badge variant="success" className="text-[10px]">MCP Active</Badge>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">{site.siteUrl}</div>
-                        {site.wordpressVersion && (
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
-                            WordPress {site.wordpressVersion} • Elementor {site.elementorVersion || 'Core'}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Button size="sm" variant="ghost" aria-label={`Delete ${site.name || site.siteUrl}`} onClick={() => handleDeleteSite(site.id)}>
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleTestConnection(site.id)}
-                          disabled={testingId === site.id}
-                        >
-                          {testingId === site.id ? 'Testing...' : 'Test Connection'}
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Add Connection Form */}
-              <form onSubmit={handleAddSite} className="border border-border rounded-xl p-4 sm:p-5 bg-card space-y-4">
-                <h4 className="text-sm font-semibold text-foreground">Connect New WordPress Site</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Site Label (Optional)"
-                    placeholder="e.g. My First WP"
-                    value={newSiteName}
-                    onChange={(e) => setNewSiteName(e.target.value)}
-                  />
-                  <Input
-                    label="WordPress Site URL"
-                    placeholder="https://mysite.com"
-                    value={newSiteUrl}
-                    onChange={(e) => setNewSiteUrl(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Input
-                    label="Username"
-                    placeholder="admin"
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value)}
-                    required
-                  />
-                  <Input
-                    label="Application Password"
-                    type="password"
-                    placeholder="xxxx xxxx xxxx xxxx"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    required
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                  Credentials are encrypted using AES-256-GCM before storage and never returned in plaintext.
+                <p className="text-xs text-muted-foreground">
+                  Matching image, input, model and prompt versions reuse cached AI responses. Elementor compilation and content checks run locally.
                 </p>
-                <Button type="submit" size="sm" isLoading={saving} className="flex items-center gap-1.5" leftIcon={<Plus className="w-4 h-4" />}>
-                  Save WordPress Connection
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* WordPress MCP Site Connections */}
+          <motion.div variants={staggerItem}>
+            <Card className="bg-card border-border">
+              <CardHeader>
+                <CardTitle className="text-base sm:text-lg flex items-center gap-2">
+                  <Globe className="w-5 h-5 text-primary" /> Connected WordPress Destinations (MCP)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {sites.length > 0 && (
+                  <div className="space-y-4">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Active WordPress Destinations ({sites.length})
+                    </h4>
+                    {sites.map((site) => (
+                      <div key={site.id} className="relative group">
+                        <ConnectionStatus site={site} onRefresh={fetchSites} />
+                        <div className="absolute top-3.5 right-12 flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            aria-label={`Delete ${site.name || site.siteUrl}`}
+                            onClick={() => handleDeleteSite(site.id)}
+                            title="Delete Connection"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add Connection Form */}
+                <form onSubmit={handleAddSite} className="border border-border rounded-xl p-4 sm:p-5 bg-card space-y-4">
+                  <h4 className="text-sm font-semibold text-foreground flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-primary" /> Connect New WordPress Site
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Input
+                      label="Site Label (Optional)"
+                      placeholder="e.g. Production Blog / Portfolio"
+                      value={newSiteName}
+                      onChange={(e) => setNewSiteName(e.target.value)}
+                    />
+                    <Input
+                      label="WordPress Site URL"
+                      placeholder="https://mysite.com"
+                      value={newSiteUrl}
+                      onChange={(e) => setNewSiteUrl(e.target.value)}
+                      required
+                    />
+                    <Input
+                      label="WordPress Username"
+                      placeholder="admin"
+                      value={newUsername}
+                      onChange={(e) => setNewUsername(e.target.value)}
+                      required
+                    />
+                    <Input
+                      label="Application Password"
+                      type="password"
+                      placeholder="abcd efgh ijkl mnop"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs text-muted-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                      Credentials encrypted with AES-256-GCM before storage
+                    </div>
+                    <Button type="submit" isLoading={saving} leftIcon={<Plus className="w-3.5 h-3.5" />}>
+                      Save Connection
+                    </Button>
+                  </div>
+                </form>
+              </CardContent>
+            </Card>
+          </motion.div>
         </motion.div>
-      </motion.main>
+      </main>
     </div>
   );
 }

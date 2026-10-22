@@ -12,6 +12,7 @@ import { Badge } from '../../../components/ui/badge';
 import { StageProgress } from '../../../components/conversion/stage-progress';
 import { DIRInspector } from '../../../components/conversion/dir-inspector';
 import { ElementorInspector } from '../../../components/conversion/elementor-inspector';
+import { AssetPreviews } from '../../../components/conversion/asset-previews';
 import { api, API_BASE_URL } from '../../../lib/api';
 import toast from 'react-hot-toast';
 import {
@@ -28,6 +29,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Trash2,
+  Maximize2,
+  ExternalLink,
 } from 'lucide-react';
 import { Modal } from '../../../components/ui/modal';
 
@@ -38,22 +41,29 @@ export default function ProjectDetailPage() {
 
   const { token, isLoading: authLoading } = useAuthStore();
   const queryClient = useQueryClient();
-  const { data: project, isLoading, error, refetch } = useQuery({
+
+  // Fast progressive live status polling (1500ms when active, stops when ready/failed)
+  const { data: project, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['project', projectId, token],
     queryFn: () => api.projects.get(projectId),
     enabled: !!token,
     refetchInterval: (query) => {
       const status = query.state.data?.conversionJobs?.[0]?.status;
-      return status && ['preview_ready', 'failed', 'published', 'cancelled'].includes(status) ? false : 3000;
+      return status && ['preview_ready', 'failed', 'published', 'cancelled'].includes(status) ? false : 1500;
     },
   });
+
   const job = project?.conversionJobs?.[0];
   const dirData = job?.dirArtifact as Record<string, unknown> | null;
   const elementorData = job?.elementorArtifact as Record<string, unknown> | null;
   const loading = authLoading || isLoading;
-  const [activeTab, setActiveTab] = useState<'status' | 'dir' | 'elementor'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'assets' | 'dir' | 'elementor'>('status');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  const isReady = job?.status === 'preview_ready' || job?.status === 'published';
+  const isFailed = job?.status === 'failed';
+  const isInFlight = !isReady && !isFailed && Boolean(job);
 
   const handleDeleteProject = async () => {
     setDeleting(true);
@@ -95,20 +105,28 @@ export default function ProjectDetailPage() {
         <Header />
         <div className="flex-1 max-w-7xl w-full mx-auto p-8 flex flex-col items-center justify-center space-y-3">
           <RefreshCw className="w-8 h-8 text-primary animate-spin" />
-          <p className="text-xs text-muted-foreground">Loading conversion artifacts...</p>
+          <p className="text-xs text-muted-foreground">Loading conversion artifacts & status...</p>
         </div>
       </div>
     );
   }
 
   if (!project) {
-    return <div className="min-h-screen bg-background text-foreground"><Header />
-      <main className="max-w-7xl mx-auto p-8"><p>{error instanceof Error ? error.message : 'Sign in to view this project.'}</p>
-        <Link href="/" className="text-primary">Back to Dashboard</Link></main></div>;
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Header />
+        <main className="max-w-7xl mx-auto p-8 space-y-3">
+          <p className="text-sm text-muted-foreground">{error instanceof Error ? error.message : 'Sign in to view this project.'}</p>
+          <Link href="/" className="text-primary text-sm underline inline-flex items-center gap-1.5">
+            <ArrowLeft className="w-3.5 h-3.5" /> Back to Dashboard
+          </Link>
+        </main>
+      </div>
+    );
   }
 
-  const isReady = job?.status === 'preview_ready' || job?.status === 'published';
-  const isFailed = job?.status === 'failed';
+  const sourceAsset = project.assets?.find((a) => a.id === job?.sourceAssetId) || project.assets?.[0];
+  const subAssetsCount = (project.assets?.length || 1) - 1;
 
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
@@ -125,26 +143,43 @@ export default function ProjectDetailPage() {
             </Link>
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
-                {project?.name || 'Untitled Project'}
+                {project.name || 'Untitled Project'}
               </h1>
               {job && (
                 <Badge
                   variant={isReady ? 'success' : isFailed ? 'error' : 'info'}
-                  withDot={!isReady && !isFailed}
+                  withDot={isInFlight}
                 >
                   {job.status}
                 </Badge>
+              )}
+              {isInFlight && (
+                <span className="text-[11px] text-muted-foreground flex items-center gap-1 font-mono">
+                  <RefreshCw className="w-3 h-3 animate-spin text-primary" /> Live Processing
+                </span>
               )}
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2.5 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="flex items-center gap-1.5"
+              title="Refresh status"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+
             {isFailed && (
               <Button variant="outline" size="sm" onClick={handleRetry} className="flex items-center gap-1.5">
                 <RefreshCw className="w-3.5 h-3.5" /> Retry Conversion
               </Button>
             )}
+
             {elementorData && isReady && (
               <>
                 <Button
@@ -163,6 +198,7 @@ export default function ProjectDetailPage() {
                 </Link>
               </>
             )}
+
             <Button
               variant="outline"
               size="sm"
@@ -188,6 +224,24 @@ export default function ProjectDetailPage() {
           >
             <Activity className="w-4 h-4" /> Pipeline Progress
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('assets')}
+            className={`pb-3 border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+              activeTab === 'assets'
+                ? 'border-primary text-primary font-semibold'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <ImageIcon className="w-4 h-4" /> Visual Assets &amp; Preview
+            {project.assets && project.assets.length > 0 && (
+              <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded-full text-foreground font-mono">
+                {project.assets.length}
+              </span>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('dir')}
@@ -205,6 +259,7 @@ export default function ProjectDetailPage() {
               <span className="text-[10px] bg-secondary px-1.5 py-0.5 rounded-full text-foreground">Ready</span>
             )}
           </button>
+
           <button
             type="button"
             onClick={() => setActiveTab('elementor')}
@@ -232,8 +287,16 @@ export default function ProjectDetailPage() {
             <div className="lg:col-span-2 space-y-6">
               <Card className="bg-card border-border">
                 <CardHeader>
-                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-primary" /> Multi-Stage Pipeline Execution
+                  <CardTitle className="text-base sm:text-lg flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Activity className="w-4 h-4 text-primary" /> Multi-Stage Pipeline Execution
+                    </span>
+                    {isInFlight && (
+                      <span className="text-xs font-normal text-muted-foreground flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-primary animate-ping" />
+                        Live Polling Active (1.5s)
+                      </span>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -270,30 +333,57 @@ export default function ProjectDetailPage() {
               )}
             </div>
 
+            {/* Right Sidebar: Source Asset Preview Card */}
             <div className="space-y-6">
               <Card className="bg-card border-border">
-                <CardHeader>
-                  <CardTitle className="text-base sm:text-lg flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4 text-primary" /> Source Design Mockup
-                  </CardTitle>
+                <CardHeader className="pb-3 border-b border-border/50">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-primary" /> Source Design Mockup
+                    </CardTitle>
+                    {sourceAsset?.width && sourceAsset?.height && (
+                      <Badge variant="neutral" className="text-[10px] font-mono">
+                        {sourceAsset.width} × {sourceAsset.height}
+                      </Badge>
+                    )}
+                  </div>
                 </CardHeader>
-                <CardContent>
-                  {project?.assets && project.assets.length > 0 ? (
-                    <div className="border border-border rounded-lg p-2 bg-secondary/30 text-center">
-                      <p className="text-[11px] text-muted-foreground mb-2">Original Upload Asset</p>
+                <CardContent className="p-4 space-y-3">
+                  {sourceAsset ? (
+                    <div className="border border-border rounded-lg p-2 bg-muted/20 text-center space-y-2">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
-                        src={`${API_BASE_URL}/storage/${(project.assets.find((asset) => asset.id === job?.sourceAssetId) || project.assets[0]).storagePath}`}
+                        src={`${API_BASE_URL}/storage/${sourceAsset.storagePath}`}
                         alt="Source design"
-                        className="max-h-64 mx-auto rounded-md object-contain border border-border shadow-sm"
+                        className="max-h-60 mx-auto rounded-md object-contain border border-border shadow-sm"
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).style.display = 'none';
                         }}
                       />
+                      <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
+                        <span className="truncate max-w-[150px] font-mono text-[11px]">{sourceAsset.fileName}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs flex items-center gap-1 text-primary hover:text-primary"
+                          onClick={() => setActiveTab('assets')}
+                        >
+                          <Eye className="w-3 h-3" /> Inspect Assets
+                        </Button>
+                      </div>
                     </div>
                   ) : (
                     <div className="p-8 text-center text-xs text-muted-foreground border border-dashed border-border rounded-lg">
                       Source mockup asset registered in repository
+                    </div>
+                  )}
+
+                  {subAssetsCount > 0 && (
+                    <div className="p-2.5 rounded-lg bg-secondary/50 border border-border text-xs flex items-center justify-between">
+                      <span className="text-muted-foreground">Extracted Sub-Assets:</span>
+                      <Badge variant="success" className="text-[10px]">
+                        {subAssetsCount} asset{subAssetsCount > 1 ? 's' : ''} ready
+                      </Badge>
                     </div>
                   )}
                 </CardContent>
@@ -302,10 +392,19 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
-        {/* Tab 2: DIR Architecture */}
+        {/* Tab 2: Visual Assets & Previews */}
+        {activeTab === 'assets' && (
+          <AssetPreviews
+            assets={project.assets || []}
+            job={job}
+            projectName={project.name}
+          />
+        )}
+
+        {/* Tab 3: DIR Architecture */}
         {activeTab === 'dir' && dirData && <DIRInspector dirData={dirData} />}
 
-        {/* Tab 3: Elementor Structure */}
+        {/* Tab 4: Elementor Structure */}
         {activeTab === 'elementor' && elementorData && (
           <ElementorInspector elementorData={elementorData} />
         )}
@@ -322,7 +421,7 @@ export default function ProjectDetailPage() {
             <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-3.5 text-xs text-destructive flex items-start gap-3">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
               <p className="leading-relaxed">
-                Deleting <strong className="font-semibold text-foreground">&ldquo;{project?.name || 'this project'}&rdquo;</strong> will permanently remove all associated conversion jobs, DIR documents, Elementor templates, and extracted assets.
+                Deleting <strong className="font-semibold text-foreground">&ldquo;{project.name || 'this project'}&rdquo;</strong> will permanently remove all associated conversion jobs, DIR documents, Elementor templates, and extracted assets.
               </p>
             </div>
 

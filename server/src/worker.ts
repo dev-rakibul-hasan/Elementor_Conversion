@@ -91,6 +91,8 @@ class ConversionWorker {
     await this.recoverExpiredLeases();
     let lastSweepTime = Date.now();
 
+    let idleDelay = 1000;
+
     // Main worker loop
     while (this.isRunning) {
       try {
@@ -108,6 +110,7 @@ class ConversionWorker {
         if (this.activeJobs.size < this.concurrency) {
           const job = await this.claimNextJob();
           if (job) {
+            idleDelay = 1000; // Reset delay immediately when work is found
             this.activeJobs.add(job.id);
             // Process job asynchronously
             void this.processJobAsync(job).catch((err) => logger.error({ jobId: job.id, err }, 'Unhandled job failure'));
@@ -116,8 +119,9 @@ class ConversionWorker {
           }
         }
 
-        // Idle delay when no work is found or at max concurrency
-        await this.sleep(1000);
+        // Adaptive idle delay (1000ms -> 2500ms) to reduce DB load when queue is empty
+        await this.sleep(idleDelay);
+        idleDelay = Math.min(idleDelay + 500, 2500);
       } catch (err) {
         logger.error({ err }, 'Unexpected error in worker loop');
         await this.sleep(2000);
@@ -361,7 +365,9 @@ class ConversionWorker {
     }
 
     logger.info('Worker shutdown completed cleanly.');
-    process.exit(0);
+    if (isDirectRun) {
+      process.exit(0);
+    }
   }
 
   private sleep(ms: number): Promise<void> {
@@ -369,8 +375,16 @@ class ConversionWorker {
   }
 }
 
-// Start worker when launched as CLI script
-if (process.env.NODE_ENV !== 'test') {
+const isDirectRun = Boolean(
+  process.argv[1] && (
+    process.argv[1].endsWith('worker.ts') ||
+    process.argv[1].endsWith('worker.js') ||
+    process.argv[1].endsWith('worker.mjs')
+  )
+);
+
+// Start worker when launched directly as CLI script
+if (process.env.NODE_ENV !== 'test' && isDirectRun) {
   printConfigDiagnostics();
   const worker = new ConversionWorker();
 

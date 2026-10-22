@@ -14,9 +14,18 @@ declare global {
   var __prismaClient: PrismaClient | undefined;
 }
 
+if (!process.env.DATABASE_URL && env.DATABASE_URL) {
+  process.env.DATABASE_URL = env.DATABASE_URL;
+}
+
 export const prisma =
   global.__prismaClient ??
   new PrismaClient({
+    datasources: {
+      db: {
+        url: process.env.DATABASE_URL || env.DATABASE_URL,
+      },
+    },
     log:
       env.NODE_ENV === 'development'
         ? ['warn', 'error']
@@ -32,7 +41,9 @@ export async function checkDatabaseConnection(): Promise<boolean> {
     await prisma.$queryRaw`SELECT 1`;
     return true;
   } catch (err) {
-    logger.error({ err }, 'Failed to connect to PostgreSQL database');
+    if (process.env.NODE_ENV !== 'test') {
+      logger.error({ err }, 'Failed to connect to PostgreSQL database');
+    }
     return false;
   }
 }

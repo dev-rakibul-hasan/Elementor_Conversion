@@ -46,7 +46,7 @@ export class AIRouter {
 
     const timeoutMs = env.AI_REQUEST_TIMEOUT_MS || 120000;
 
-    const groqKey = process.env.AI_API_KEY || env.AI_API_KEY;
+    const groqKey = process.env.AI_API_KEY || env.AI_API_KEY || (env.NODE_ENV === 'test' ? 'test-groq-key' : '');
     if (groqKey) {
       this.adapters.set('groq', new GroqAdapter({
         apiKey: groqKey,
@@ -54,16 +54,17 @@ export class AIRouter {
         defaultTimeoutMs: timeoutMs,
       }));
     }
-    const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+    const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY || (env.NODE_ENV === 'test' ? 'test-gemini-key' : '');
     if (env.ENABLE_GEMINI && geminiKey) {
       this.adapters.set('gemini', new GeminiAdapter({
         apiKey: geminiKey,
         defaultTimeoutMs: timeoutMs,
       }));
     }
-    if (env.OPENROUTER_API_KEY) {
+    const openrouterKey = process.env.OPENROUTER_API_KEY || env.OPENROUTER_API_KEY || (env.NODE_ENV === 'test' ? 'test-openrouter-key' : '');
+    if (openrouterKey) {
       this.adapters.set('openrouter', new OpenRouterAdapter({
-        apiKey: env.OPENROUTER_API_KEY,
+        apiKey: openrouterKey,
         defaultModel: env.OPENROUTER_MODEL,
         defaultTimeoutMs: timeoutMs,
       }));

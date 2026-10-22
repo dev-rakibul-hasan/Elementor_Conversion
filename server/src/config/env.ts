@@ -98,6 +98,7 @@ export const envSchema = z.object({
 
   CONVERSION_WORKER_CONCURRENCY: numericString(2),
   CONVERSION_MAX_ATTEMPTS: numericString(3),
+  ENABLE_EMBEDDED_WORKER: booleanString(true),
 
   VISION_AI_PROVIDER: z
     .enum(['gemini', 'groq', 'openrouter', 'mock'])
@@ -165,6 +166,11 @@ function parseEnv(): Env {
 }
 
 export const env: Env = parseEnv();
+
+// Ensure process.env.DATABASE_URL is populated for Prisma Client when using schema default
+if (!process.env.DATABASE_URL && env.DATABASE_URL) {
+  process.env.DATABASE_URL = env.DATABASE_URL;
+}
 
 /**
  * Diagnostic logger for configuration status.
