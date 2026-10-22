@@ -106,7 +106,27 @@ export class StageAICache {
   ): Promise<AIResponse | null> {
     const now = new Date();
 
-    // 1. Try PostgreSQL first if available
+    // 1. Fast-path: Check Tier-1 in-memory cache first (< 0.01ms)
+    const memEntry = this.memoryCache.get(key);
+    if (memEntry) {
+      if (memEntry.expiresAt && memEntry.expiresAt < now) {
+        this.memoryCache.delete(key);
+      } else if (
+        versionCheck &&
+        ((versionCheck.schemaVersion && memEntry.metadata.schemaVersion !== versionCheck.schemaVersion) ||
+          (versionCheck.promptVersion && memEntry.metadata.promptVersion !== versionCheck.promptVersion) ||
+          (versionCheck.skillVersion && memEntry.metadata.skillVersion !== versionCheck.skillVersion))
+      ) {
+        this.memoryCache.delete(key);
+      } else {
+        return {
+          ...memEntry.response,
+          cached: true,
+        };
+      }
+    }
+
+    // 2. Slow-path: Check Tier-2 PostgreSQL database if available
     if (this.isPostgresAvailable) {
       try {
         const record = await prisma.stageCache.findUnique({
@@ -145,10 +165,29 @@ export class StageAICache {
           }
 
           const rawResponse = record.response as unknown as AIResponse;
-          return {
+          const cachedResponse = {
             ...rawResponse,
             cached: true,
           };
+
+          // Populate Tier-1 in-memory cache for subsequent fast hits
+          this.memoryCache.set(key, {
+            cacheKey: key,
+            response: cachedResponse,
+            metadata: {
+              sourceImageHash: record.sourceImageHash || undefined,
+              schemaVersion: record.schemaVersion || undefined,
+              skillVersion: record.skillVersion || undefined,
+              promptVersion: record.promptVersion || undefined,
+              provider: record.provider as any,
+              model: record.model,
+              stage: record.stage || undefined,
+            },
+            expiresAt: record.expiresAt,
+            createdAt: record.createdAt,
+          });
+
+          return cachedResponse;
         }
       } catch (err) {
         logger.warn(
@@ -159,31 +198,7 @@ export class StageAICache {
       }
     }
 
-    // 2. Fallback to memory cache
-    const memEntry = this.memoryCache.get(key);
-    if (!memEntry) return null;
-
-    if (memEntry.expiresAt && memEntry.expiresAt < now) {
-      this.memoryCache.delete(key);
-      return null;
-    }
-
-    if (versionCheck) {
-      const { metadata } = memEntry;
-      if (
-        (versionCheck.schemaVersion && metadata.schemaVersion !== versionCheck.schemaVersion) ||
-        (versionCheck.promptVersion && metadata.promptVersion !== versionCheck.promptVersion) ||
-        (versionCheck.skillVersion && metadata.skillVersion !== versionCheck.skillVersion)
-      ) {
-        this.memoryCache.delete(key);
-        return null;
-      }
-    }
-
-    return {
-      ...memEntry.response,
-      cached: true,
-    };
+    return null;
   }
 
   /**

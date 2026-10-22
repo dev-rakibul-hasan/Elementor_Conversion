@@ -167,6 +167,11 @@ function parseEnv(): Env {
 
 export const env: Env = parseEnv();
 
+// Ensure process.env.DATABASE_URL is populated for Prisma Client when using schema default
+if (!process.env.DATABASE_URL && env.DATABASE_URL) {
+  process.env.DATABASE_URL = env.DATABASE_URL;
+}
+
 /**
  * Diagnostic logger for configuration status.
  * NEVER logs actual secret values, only logs presence, lengths, and safe URLs.

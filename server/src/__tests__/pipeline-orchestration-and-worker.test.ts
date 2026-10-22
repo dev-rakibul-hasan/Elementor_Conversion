@@ -15,7 +15,7 @@ import http from 'http';
 import sharp from 'sharp';
 import { createRequire } from 'module';
 import { app } from '../index.js';
-import { prisma } from '../lib/prisma.js';
+import { prisma, checkDatabaseConnection } from '../lib/prisma.js';
 import { signToken } from '../middleware/auth.js';
 import { ConversionWorker } from '../worker.js';
 import {
@@ -28,7 +28,9 @@ import type { DIRDocument } from '../modules/dir/types.js';
 const require = createRequire(import.meta.url);
 const sampleValidDIR: DIRDocument = require('../__fixtures__/sample-dir.json');
 
-describe('Pipeline Orchestration & Worker Queue Architecture', () => {
+const isDbAvailable = await checkDatabaseConnection();
+
+describe.runIf(isDbAvailable)('Pipeline Orchestration & Worker Queue Architecture', () => {
   let server: http.Server;
   let baseUrl: string;
   let testUserId: string;

@@ -130,6 +130,15 @@ if (process.env.NODE_ENV !== 'test') {
     );
   });
 
+  if (env.ENABLE_EMBEDDED_WORKER) {
+    const embeddedWorker = new ConversionWorker();
+    embeddedWorker.start().catch((err) => {
+      logger.error({ err }, 'Failed to start embedded conversion worker');
+    });
+    process.on('SIGTERM', () => void embeddedWorker.shutdown('SIGTERM'));
+    process.on('SIGINT', () => void embeddedWorker.shutdown('SIGINT'));
+  }
+
   // Graceful shutdown handling
   const shutdown = (signal: string) => {
     logger.info(`Received ${signal}. Shutting down HTTP server gracefully...`);

@@ -91,6 +91,8 @@ class ConversionWorker {
     await this.recoverExpiredLeases();
     let lastSweepTime = Date.now();
 
+    let idleDelay = 1000;
+
     // Main worker loop
     while (this.isRunning) {
       try {
@@ -108,6 +110,7 @@ class ConversionWorker {
         if (this.activeJobs.size < this.concurrency) {
           const job = await this.claimNextJob();
           if (job) {
+            idleDelay = 1000; // Reset delay immediately when work is found
             this.activeJobs.add(job.id);
             // Process job asynchronously
             void this.processJobAsync(job).catch((err) => logger.error({ jobId: job.id, err }, 'Unhandled job failure'));
@@ -116,8 +119,9 @@ class ConversionWorker {
           }
         }
 
-        // Idle delay when no work is found or at max concurrency
-        await this.sleep(1000);
+        // Adaptive idle delay (1000ms -> 2500ms) to reduce DB load when queue is empty
+        await this.sleep(idleDelay);
+        idleDelay = Math.min(idleDelay + 500, 2500);
       } catch (err) {
         logger.error({ err }, 'Unexpected error in worker loop');
         await this.sleep(2000);

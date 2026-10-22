@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  poweredByHeader: false,
+  compress: true,
+  experimental: {
+    optimizePackageImports: ['lucide-react', '@tanstack/react-query', 'framer-motion'],
+  },
   turbopack: {
     root: __dirname,
   },

@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useQuery } from '@tanstack/react-query';
 import { Header } from '../../../../components/layout/header';
 import { Button } from '../../../../components/ui/button';
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '../../../../components/ui/card';
 import { Input } from '../../../../components/ui/input';
 import { Badge } from '../../../../components/ui/badge';
 import { ConnectionStatus } from '../../../../components/sites/connection-status';
-import { api, Project, ConversionJobWithStages, SiteConnection, PublishResult } from '../../../../lib/api';
+import { api, PublishResult } from '../../../../lib/api';
 import toast from 'react-hot-toast';
 import { ArrowLeft, Send, CheckCircle2, AlertTriangle, ExternalLink, Globe, Layers, Settings, Zap } from 'lucide-react';
 
@@ -18,41 +19,28 @@ export default function PublishPage() {
   const router = useRouter();
   const projectId = params.id as string;
 
-  const [project, setProject] = useState<Project | null>(null);
-  const [job, setJob] = useState<ConversionJobWithStages | null>(null);
-  const [sites, setSites] = useState<SiteConnection[]>([]);
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => api.projects.get(projectId),
+    enabled: !!projectId,
+  });
+
+  const { data: sites = [], refetch: refetchSites } = useQuery({
+    queryKey: ['sites'],
+    queryFn: api.sites.list,
+  });
+
+  const job = project?.conversionJobs?.[0] || null;
   const [selectedSiteId, setSelectedSiteId] = useState('');
-  const [title, setTitle] = useState('');
+  const [customTitle, setCustomTitle] = useState('');
   const [publishMode, setPublishMode] = useState<'draft' | 'publish'>('draft');
   const [confirmed, setConfirmed] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState<PublishResult | null>(null);
 
-  const loadData = useCallback(async () => {
-    try {
-      const projRes = await api.projects.get(projectId);
-      if (projRes) {
-        setProject(projRes);
-        setTitle(projRes.name);
-        const latestJob = projRes.conversionJobs?.[0];
-        setJob(latestJob || null);
-      }
-
-      const sitesRes = await api.sites.list();
-      if (sitesRes && sitesRes.length > 0) {
-        setSites(sitesRes);
-        setSelectedSiteId((prev) => prev || sitesRes[0].id);
-      }
-    } catch {
-      toast.error('Failed to load publish context');
-    }
-  }, [projectId]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  const selectedSite = sites.find((s) => s.id === selectedSiteId) || sites[0];
+  const title = customTitle || project?.name || '';
+  const effectiveSiteId = selectedSiteId || sites[0]?.id || '';
+  const selectedSite = sites.find((s) => s.id === effectiveSiteId) || sites[0];
 
   const handlePublish = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,7 +48,7 @@ export default function PublishPage() {
       toast.error('No conversion job ready to publish');
       return;
     }
-    if (!selectedSiteId) {
+    if (!effectiveSiteId) {
       toast.error('Please configure or select a target WordPress site');
       return;
     }
@@ -74,9 +62,9 @@ export default function PublishPage() {
       const res = await api.publish.publish({
         projectId,
         jobId: job.id,
-        siteConnectionId: selectedSiteId,
+        siteConnectionId: effectiveSiteId,
         resourceType: 'page',
-        title,
+        title: title || 'Landing Page',
         mode: publishMode,
         confirmPublish: true,
       });
@@ -226,7 +214,7 @@ export default function PublishPage() {
                     {selectedSite && (
                       <ConnectionStatus
                         site={selectedSite}
-                        onRefresh={loadData}
+                        onRefresh={() => { refetchSites(); }}
                       />
                     )}
                   </div>
@@ -235,7 +223,7 @@ export default function PublishPage() {
                 <Input
                   label="Target Page Title"
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => setCustomTitle(e.target.value)}
                   placeholder="e.g. Landing Page V1"
                   required
                 />

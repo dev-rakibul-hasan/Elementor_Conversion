@@ -2,9 +2,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'http';
 import { app } from '../index.js';
 import { signToken } from '../middleware/auth.js';
-import { prisma } from '../lib/prisma.js';
+import { prisma, checkDatabaseConnection } from '../lib/prisma.js';
 
-describe('Upload API and Authentication Endpoints', () => {
+const isDbAvailable = await checkDatabaseConnection();
+
+describe.runIf(isDbAvailable)('Upload API and Authentication Endpoints', () => {
   let server: http.Server;
   let baseUrl: string;
   let testUserToken: string;

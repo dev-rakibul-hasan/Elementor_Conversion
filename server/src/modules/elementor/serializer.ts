@@ -131,6 +131,12 @@ export function serializeElementorClipboard(
   return JSON.stringify(clipboardPayload);
 }
 
+let cachedRootSkill: { content: string; filePath: string; hash: string } | null = null;
+
+export function clearRootSkillCache(): void {
+  cachedRootSkill = null;
+}
+
 /**
  * Loads the primary authoritative Elementor conversion skill instructions
  * from server/ELEMENTOR_SKILL.md.
@@ -143,6 +149,10 @@ export function loadRootSkillInstructions(customPath?: string): {
   filePath: string;
   hash: string;
 } {
+  if (!customPath && cachedRootSkill) {
+    return cachedRootSkill;
+  }
+
   const candidatePaths = customPath
     ? [customPath]
     : [
@@ -162,11 +172,15 @@ export function loadRootSkillInstructions(customPath?: string): {
       try {
         const content = fs.readFileSync(candidate, 'utf-8');
         const hash = crypto.createHash('sha256').update(content).digest('hex').substring(0, 16);
-        return {
+        const result = {
           content,
           filePath: candidate,
           hash,
         };
+        if (!customPath) {
+          cachedRootSkill = result;
+        }
+        return result;
       } catch (err: any) {
         throw new Error(
           `Failed to read root Elementor skill instructions at ${candidate}: ${err.message}`
